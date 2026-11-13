@@ -108,10 +108,14 @@
   .pk-row .x-dukascopy { color:#e53935; border-color:#e5393566; }
   .pk-row:hover, .pk-row.sel { background:var(--hover); }
   #pickInfo { color:var(--muted); font-size:11px; padding:6px 12px; border-top:1px solid var(--border); }
-  #settings { position:fixed; top:48px; right:8px; z-index:30; width:420px; background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:12px; display:none; box-shadow:0 6px 24px var(--shadow); }
+  #settings { position:fixed; top:48px; right:8px; z-index:30; width:420px; max-height:calc(100dvh - 56px); overflow-y:auto; background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:12px; display:none; box-shadow:0 6px 24px var(--shadow); }
   #settings.open { display:block; } #settings h3 { margin:0 0 8px; font-size:14px; }
+  #settings h4 { margin:12px 0 6px; font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  #settings label.cs-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  #settings label.cs-row input[type=checkbox], #settings label.cs-row input[type=color], #settings label.cs-row select { width:auto; min-width:110px; }
+  #settings label.cs-row input[type=checkbox] { min-width:0; width:18px; height:18px; }
   #settings label { display:block; margin:6px 0; } #settings label select, #settings label input { width:100%; }
-  #settings .row { display:flex; gap:6px; justify-content:flex-end; margin-top:10px; } #settings .row button { border:1px solid var(--border); }
+  #settings .row { display:flex; gap:6px; justify-content:flex-end; margin:10px -12px 0; padding:10px 12px 0; position:sticky; bottom:0; background:var(--panel); border-top:1px solid var(--border); } #settings .row button { border:1px solid var(--border); }
   #veil { position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:44; display:none; } #veil.open { display:block; }
   .dlg { position:fixed; z-index:45; top:50%; left:50%; transform:translate(-50%,-50%); width:520px; max-width:calc(100vw - 16px); max-height:calc(100dvh - 40px); background:var(--panel); border:1px solid var(--border); border-radius:8px; box-shadow:0 10px 40px var(--shadow); display:none; flex-direction:column; }
   .dlg.open { display:flex; }
@@ -316,6 +320,28 @@
     .legend .sym { font-size:13px; }
     #drawBar { border-right-width:1px; }
   }
+
+  /* ===== Phase 2: TradingView parity ===== */
+  .wm { position:absolute; left:50%; top:46%; transform:translate(-50%,-50%); font-size:72px; font-weight:700; color:var(--text); opacity:.06; pointer-events:none; z-index:1; white-space:nowrap; letter-spacing:.02em; max-width:80%; overflow:hidden; text-overflow:ellipsis; }
+  #ctxMenu { display:none; position:fixed; z-index:55; min-width:240px; background:var(--panel); border:1px solid var(--border); border-radius:6px; box-shadow:0 8px 28px var(--shadow); padding:6px 0; }
+  #ctxMenu.open { display:block; }
+  #ctxMenu button { display:flex; align-items:center; justify-content:space-between; width:100%; text-align:left; border:0; background:transparent; color:var(--text); padding:7px 14px; font-size:13px; border-radius:0; min-height:0; height:auto; }
+  #ctxMenu button:hover { background:var(--hover); }
+  #ctxMenu button[disabled] { color:var(--muted); }
+  #ctxMenu button kbd { color:var(--muted); font-size:11px; font-weight:500; margin-left:16px; font-family:inherit; }
+  #ctxMenu .ctx-sep { height:1px; background:var(--border); margin:6px 0; }
+  #ctxMenu .ctx-check { color:var(--accent); margin-right:8px; width:14px; }
+  #clock { cursor:pointer; } #clock:hover { color:var(--accent); }
+  #tzPop { display:none; position:fixed; z-index:55; min-width:160px; max-height:50vh; overflow:auto; background:var(--panel); border:1px solid var(--border); border-radius:6px; box-shadow:0 8px 28px var(--shadow); padding:4px 0; }
+  #tzPop.open { display:block; }
+  #tzPop button { display:block; width:100%; text-align:left; border:0; background:transparent; color:var(--text); padding:6px 12px; font-size:13px; }
+  #tzPop button:hover, #tzPop button.on { background:var(--hover); color:var(--accent); }
+  .cmp-row { display:flex; align-items:center; gap:6px; }
+  #chartDlg label.row input[type=color] { width:42px; height:28px; padding:0; border:1px solid var(--border); background:transparent; }
+  #gtDate { width:100%; padding:8px 10px; font-size:16px; }
+  @media (max-width: 760px) {
+    #ctxMenu, #tzPop { left:8px !important; right:8px !important; width:auto; min-width:0; }
+  }
 </style>
 </head>
 <body>
@@ -324,7 +350,7 @@
     <div class="bar bar1">
       <button id="drawToggle" class="mob ic" title="Drawing tools"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 6l3 3"/></svg></button>
       <div class="sym-pill" id="symPill" title="Symbol search (or just start typing)"><span class="coin" id="symIcon"></span><input id="symbol" value="BTCUSDT" readonly spellcheck="false" autocomplete="off"><span class="pill-ic"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg></span></div>
-      <button id="compareBtn" class="ic" title="Open another symbol beside this chart"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button id="compareBtn" class="ic" title="Compare: overlay another symbol on this chart"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
       <div class="sep"></div>
       <div id="favWrap"><button type="button" id="favPrev" class="fav-arrow fav-prev" title="Earlier timeframes" aria-label="Earlier timeframes">‹</button><span class="fav-fade fav-fade-l"></span><span id="favs"></span><span class="fav-fade fav-fade-r"></span><button type="button" id="favNext" class="fav-arrow fav-next" title="More timeframes" aria-label="More timeframes">›</button></div>
       <button type="button" id="tfMenuBtn" class="ic" title="Time interval" aria-label="Time interval" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
@@ -376,6 +402,22 @@
 </div>
 <div id="settings">
   <h3>Settings</h3>
+  <h4>Chart</h4>
+  <label class="cs-row">Candles up <input id="csUp" type="color"></label>
+  <label class="cs-row">Candles down <input id="csDown" type="color"></label>
+  <label class="cs-row">Wicks <input id="csWicks" type="checkbox"></label>
+  <label class="cs-row">Borders <input id="csBorders" type="checkbox"></label>
+  <label class="cs-row">Grid <input id="csGrid" type="checkbox"></label>
+  <label class="cs-row">Symbol watermark <input id="csWm" type="checkbox"></label>
+  <label class="cs-row">Price scale
+    <select id="csScale"><option value="normal">Regular</option><option value="log">Logarithmic</option><option value="percent">Percent</option></select>
+  </label>
+  <label class="cs-row">Invert scale <input id="csInvert" type="checkbox"></label>
+  <label class="cs-row">Auto-scale <input id="csAuto" type="checkbox"></label>
+  <label class="cs-row">Time zone
+    <select id="csTz"></select>
+  </label>
+  <h4>Data sources</h4>
   <div class="note"><b>Crypto:</b> Binance Spot / USDⓈ-M, Bybit Spot / Perps, OKX Spot / Perps, Gate.io Spot – all free, no key. One search box covers all of them plus gold, forex and stocks (Dukascopy) together – no need to switch source.<br>
   <b>Gold · Forex · Stocks:</b> Dukascopy (Swiss bank) – no key. Shows the mid price by default, the same price type as OANDA charts on TradingView (measured: gold within ~0.04 USD, EUR/USD within ~0.1 pip of OANDA). Works from the hosted link or a local web server, not from a file opened by double-click.<br>
   <b>OANDA</b> (optional): free practice account token. <b>MT5</b>: run <code>mt5_bridge.py</code> on the PC with MT5.</div>
@@ -401,11 +443,16 @@
   <div class="dlg-b"><div class="kbd"><b>0-9</b><span>Change interval (15 = 15 minutes, 3h, D, W, M) + Enter</span><b>A-Z</b><span>symbol search</span><b>/</b><span>indicators</span>
   <b>Alt+H</b><span>horizontal line at the crosshair</span><b>Alt+J</b><span>horizontal ray</span><b>Alt+V</b><span>vertical line</span><b>Alt+T</b><span>trend line tool</span><b>Alt+F</b><span>fib retracement tool</span>
   <b>Alt+A</b><span>alert at the crosshair price</span><b>Alt+S</b><span>save screenshot (PNG)</span><b>Alt+W</b><span>watchlist</span><b>Alt+R</b><span>reset chart view</span>
-  <b>Del</b><span>delete selected drawing</span><b>Ctrl+Z / Ctrl+Y</b><span>undo / redo drawings</span><b>Esc</b><span>cancel tool · deselect · close dialogs</span></div>
+  <b>Right-click</b><span>chart / price scale menu</span><b>Alt+G</b><span>Go to date</span><b>Del</b><span>delete selected drawing</span><b>Ctrl+Z / Ctrl+Y</b><span>undo / redo drawings</span><b>Esc</b><span>cancel tool · deselect · close dialogs</span></div>
   <p class="note">Drawing: pick a tool, then click (or press-drag) the points. Drawings are saved per symbol and keep their time/price on every timeframe. Drag a drawing to move it, drag its handles to reshape it.</p></div></div>
 <div id="tfScrim"></div>
 <div id="tfMenu" role="menu" aria-label="Time interval"></div>
 <div id="tfQuick" role="dialog" aria-label="Change interval"><div class="tfq-h">Change interval</div><input id="tf" value="1h" spellcheck="false" autocomplete="off" autocapitalize="none" enterkeyhint="go" aria-label="Interval"><div class="tfq-hint">15 = 15 minutes · 3h · 45s · D · W · M</div></div>
+<div id="ctxMenu" role="menu" aria-label="Chart menu"></div>
+<div id="tzPop" role="menu" aria-label="Time zone"></div>
+<div id="gotoDlg" class="dlg" role="dialog"><div class="dlg-h"><span>Go to date</span><button data-close="gotoDlg">✕</button></div>
+  <div class="dlg-b"><input id="gtDate" type="datetime-local" step="1"><p class="note">Jump the chart to a date and time in the selected time zone.</p></div>
+  <div class="dlg-f"><button id="gtGo" class="active">Go to</button></div></div>
 <div id="toasts"></div>
 <script>
 'use strict';
@@ -1447,8 +1494,31 @@ function _store() {
            del(k) { try { localStorage.removeItem('cc_' + k); } catch {} } };
 }
 var store = _store();
-const TZ_SHIFT = -new Date().getTimezoneOffset() * 60; // chart axis shows the device's local time (UTC+8 in Malaysia)
-const TZ_LABEL = 'UTC' + (TZ_SHIFT >= 0 ? '+' : '-') + Math.abs(TZ_SHIFT / 3600);
+const DEVICE_TZ = -new Date().getTimezoneOffset() / 60; // hours east of UTC (8 in Malaysia)
+let TZ_SHIFT = 0, TZ_LABEL = 'UTC';
+function tzHours() { const v = store.get('chartTz', 'device'); return v === 'device' || v == null || v === '' ? DEVICE_TZ : +v; }
+function applyTimeZone() {
+  const h = tzHours(), sign = h >= 0 ? '+' : '';
+  TZ_SHIFT = h * 3600;
+  TZ_LABEL = 'UTC' + sign + (Number.isInteger(h) ? h : h.toFixed(1));
+}
+applyTimeZone();
+function setTimeZone(v) {
+  store.set('chartTz', v);
+  applyTimeZone();
+  if (typeof App !== 'undefined' && App.cells) App.cells.forEach(c => { try { c.renderAll({}); if (c.refreshCompares) c.refreshCompares(); } catch {} });
+}
+const CHART_PREF_DEF = { up: '#089981', down: '#f23645', wicks: true, borders: false, grid: true, watermark: false, scale: 'normal', invert: false, auto: true };
+function chartPrefs() { return Object.assign({}, CHART_PREF_DEF, store.get('chartPrefs', {}) || {}); }
+function setChartPrefs(partial) {
+  store.set('chartPrefs', Object.assign(chartPrefs(), partial));
+  if (typeof App !== 'undefined' && App.cells) App.cells.forEach(c => { try { c.applyChartPrefs(); } catch {} });
+}
+const CMP_COLORS = ['#ff9800', '#26a69a', '#ab47bc', '#42a5f5', '#ec407a', '#9ccc65'];
+const scaleModeId = s => {
+  const M = (LWC && LWC.PriceScaleMode) || {};
+  return ({ normal: M.Normal ?? 0, log: M.Logarithmic ?? 1, percent: M.Percentage ?? 2 })[s] ?? 0;
+};
 // ---------- display names + coin badges (TradingView-style "Bitcoin / TetherUS") ----------
 const COIN_NAMES = { BTC: 'Bitcoin', ETH: 'Ethereum', SOL: 'Solana', BNB: 'BNB', XRP: 'XRP', DOGE: 'Dogecoin', ADA: 'Cardano', TRX: 'TRON', AVAX: 'Avalanche', LINK: 'Chainlink',
   DOT: 'Polkadot', TON: 'Toncoin', SUI: 'Sui', PEPE: 'Pepe', SHIB: 'Shiba Inu', LTC: 'Litecoin', BCH: 'Bitcoin Cash', NEAR: 'NEAR Protocol', APT: 'Aptos', ARB: 'Arbitrum', OP: 'Optimism',
@@ -1566,9 +1636,10 @@ class Cell {
     new ResizeObserver(() => this.positionPaneLegends()).observe(this.chartEl);
     this.el.addEventListener('pointerdown', () => App.setActive(this), true);
     Draw.bind(this);
+    this.applyChartPrefs();
   }
   destroy() { this.stopLive(); this.state.gen++; try { this.chart.remove(); } catch {} this.el.remove(); }
-  applyTheme() { this.chart.applyOptions(chartOptions()); this.buildSeries(); this.renderAll({}); }
+  applyTheme() { this.chart.applyOptions(chartOptions()); this.buildSeries(); this.renderAll({}); this.applyChartPrefs(); }
 
   // ---------- series ----------
   buildSeries() {
@@ -1585,6 +1656,7 @@ class Cell {
     else this.main = ch.addSeries(LWC.CandlestickSeries, { ...base, upColor: UP, downColor: DOWN, borderVisible: false, wickUpColor: UP, wickDownColor: DOWN }, 0);
     this.main.priceScale().applyOptions({ scaleMargins: { top: 0.08, bottom: 0.2 } });
     this.main.attachPrimitive(this.drawPrim);
+    try { this.applyCandleStyle(); this.applyScale(); } catch {}
     this.indRt = [];
     for (const inst of this.cfg.inds) this.addIndSeries(inst);
     const subs = ch.panes().length - 1;
@@ -1599,7 +1671,7 @@ class Cell {
     const rt = { inst, def, series: {}, pane, prims: [] };
     const pf = def.priceLike ? priceFormatFor(this.state.agg) : def.fixedRange ? { type: 'price', precision: 2, minMove: 0.01 } : undefined;
     for (const pl of def.plots) {
-      const color = inst.colors[pl.k] || pl.color, width = inst.widths[pl.k] || pl.width || 1;
+      const color = (inst.colors && inst.colors[pl.k]) || pl.color, width = (inst.widths && inst.widths[pl.k]) || pl.width || 1;
       const common = { priceLineVisible: false, lastValueVisible: !(pl.scale === 'vol' || def.id === 'ichimoku'), crosshairMarkerVisible: false, visible: !inst.hidden && !(inst.off && inst.off[pl.k]), title: '' };
       if (pf) common.priceFormat = pf;
       if (pl.scale === 'vol') { common.priceScaleId = 'vol'; common.priceFormat = { type: 'volume' }; }
@@ -1610,7 +1682,7 @@ class Cell {
       if (pl.scale === 'vol') ch.priceScale('vol', 0).applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
     }
     const first = rt.series[def.plots[0].k];
-    for (const l of def.levels || []) { const v = inst.levels[l.k] != null ? inst.levels[l.k] : l.value;
+    for (const l of def.levels || []) { const v = (inst.levels || {})[l.k] != null ? inst.levels[l.k] : l.value;
       first.createPriceLine({ price: v, color: (inst.colors['lv_' + l.k]) || l.color, lineWidth: 1, lineStyle: LWC.LineStyle.Dashed, axisLabelVisible: false, title: '' }); }
     if (def.fills && !inst.hidden) for (const f of def.fills) { const pr = new FillPrimitive(this, rt, f); first.attachPrimitive(pr); rt.prims.push([first, pr]); }
     this.indRt.push(rt);
@@ -1690,7 +1762,7 @@ class Cell {
     const pf = priceFormatFor(this.state.agg);
     this.main.applyOptions({ priceFormat: pf });
     for (const rt of this.indRt) if (rt.def.priceLike || rt.def.overlay) for (const k in rt.series) if (!(rt.def.plots.find(p => p.k === k) || {}).scale) rt.series[k].applyOptions({ priceFormat: pf });
-    this.main.setData(bars.map((b, i) => this.mainPoint(b, i, bars)));
+    try { this.main.setData(bars.map((b, i) => this.mainPoint(b, i, bars))); } catch (e) { console.warn(e); }
     for (const rt of this.indRt) this.renderInd(rt, true);
     if (range && keep.prevLen != null) { const sh = this.state.agg.length - keep.prevLen; ts.setVisibleLogicalRange({ from: range.from + sh, to: range.to + sh }); }
     else if (range) ts.setVisibleLogicalRange(range);
@@ -1729,12 +1801,20 @@ class Cell {
         `<span class="ind-btns"><button data-ind-eye="${rt.inst.uid}" title="Hide / show">${rt.inst.hidden ? '◌' : '👁'}</button><button data-ind-set="${rt.inst.uid}" title="Settings">⚙</button><button data-ind-del="${rt.inst.uid}" title="Remove">✕</button></span>`;
     };
     for (const rt of this.indRt) if (rt.def.overlay) html += `<div class="ind-row" data-cell="${this.idx}">${row(rt)}</div>`;
+    if (this._cmpSeries) for (const c of this._cmpSeries) {
+      const ad = adapterById(c.src), name = (ad && ad.labelOf && ad.labelOf(c.sym)) || c.sym;
+      const j = c.bars && c.bars.length ? ((param && param.time != null) ? floorIndex(c.bars, fromChartTime(param.time)) : c.bars.length - 1) : -1;
+      const cb = j >= 0 ? c.bars[j] : null, base = c.bars && c.bars[0];
+      const pcts = cb && base && base.c ? ` (${((cb.c / base.c - 1) * 100).toFixed(2)}%)` : '';
+      html += `<div class="ind-row cmp-row"><span style="color:${c.color}">${esc(name)}</span> <span style="color:${c.color}">${cb ? fmtNum(cb.c) : '—'}${pcts}</span><span class="ind-btns"><button data-cmp-del="${esc(c.src + ':' + c.sym)}" title="Remove compare">✕</button></span></div>`;
+    }
     const how = this.cfg.type === 'ha' ? 'Heikin Ashi · ' : '';
     const src = st.plan.fromTrades ? 'built from live trades/ticks · ' : st.plan.native ? '' : `built from ${st.plan.src} candles (×${st.plan.ratio}) · `;
     html += `<div class="hint">${how}${src}${agg.length} bars · times in ${TZ_LABEL}</div>`;
     this.legendEl.innerHTML = html; const slot = this.legendEl.querySelector('.qbox-slot'); if (slot) slot.appendChild(this.qboxEl);
     for (const rt of this.indRt) if (rt.legendEl) rt.legendEl.innerHTML = `<div class="ind-row" data-cell="${this.idx}">${row(rt)}</div>`;
     this.positionPaneLegends();
+    this.updateWatermark();
   }
   positionPaneLegends() {
     const panes = this.chart.panes(); let top = 0;
@@ -1884,6 +1964,7 @@ class Cell {
       this.setStatus(plan.fromTrades && !n ? 'No second history here – candles build from live trades…' : `Loaded ${n} bars · connecting live…`);
       App.onCellLoaded(this);
       this.startLive(gen);
+      this.loadCompares();
     } catch (e) {
       if (gen !== st.gen) return;
       let msg = e.message; try { msg = JSON.parse(e.message).msg || msg; } catch {}
@@ -1931,6 +2012,105 @@ class Cell {
     const st = this.state; st.ad = adapterById(id); st.source = st.ad.id;
     st.symbol = st.ad.normalizeSymbol(this.cfg.syms[st.source] || st.ad.defaultSymbol);
     App.saveCell(this); loadSymbols(st.ad, () => Picker.refresh()); this.load();
+  }
+
+  applyChartPrefs() {
+    const p = chartPrefs(), th = TH();
+    try { this.chart.applyOptions({ grid: { vertLines: { color: p.grid ? th.grid : 'rgba(0,0,0,0)', visible: !!p.grid }, horzLines: { color: p.grid ? th.grid : 'rgba(0,0,0,0)', visible: !!p.grid } } }); } catch {}
+    this.applyCandleStyle(); this.applyScale(); this.updateWatermark();
+  }
+  applyCandleStyle() {
+    if (!this.main) return;
+    const p = chartPrefs(), t = this.cfg.type || 'candles', up = p.up || UP, down = p.down || DOWN;
+    try {
+      if (t === 'bars') this.main.applyOptions({ upColor: up, downColor: down });
+      else if (t === 'line' || t === 'area') { /* line/area keep their series colour */ }
+      else if (t === 'hollow') this.main.applyOptions({ upColor: 'rgba(0,0,0,0)', downColor: down, borderVisible: true, borderUpColor: up, borderDownColor: down, wickVisible: p.wicks !== false, wickUpColor: up, wickDownColor: down });
+      else this.main.applyOptions({ upColor: up, downColor: down, borderVisible: !!p.borders, borderUpColor: up, borderDownColor: down, wickVisible: p.wicks !== false, wickUpColor: up, wickDownColor: down });
+    } catch {}
+  }
+  applyScale() {
+    if (!this.main) return;
+    const p = chartPrefs();
+    try { this.main.priceScale().applyOptions({ mode: scaleModeId(p.scale || 'normal'), invertScale: !!p.invert, autoScale: p.auto !== false }); } catch {}
+  }
+  updateWatermark() {
+    let el = this.el.querySelector('.wm');
+    if (!el) { el = document.createElement('div'); el.className = 'wm'; this.el.appendChild(el); }
+    const on = !!(chartPrefs().watermark);
+    el.style.display = on ? '' : 'none';
+    if (on) el.textContent = this.label() + '  ' + ((this.state.plan && this.state.plan.spec.label) || this.state.tf);
+  }
+  resetView() {
+    const n = this.disp.length, p = chartPrefs();
+    try { this.main.priceScale().applyOptions({ autoScale: p.auto !== false }); } catch {}
+    try { this.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 160), to: n + 8 }); } catch {}
+  }
+  goToTime(t) {
+    const i = floorIndex(this.disp, t);
+    if (i < 0) return false;
+    const from = Math.max(0, i - 80);
+    try { this.chart.timeScale().setVisibleLogicalRange({ from, to: from + 100 }); } catch { return false; }
+    return true;
+  }
+  async loadCompares() {
+    const gen = this.state.gen, list = this.cfg.compare || [];
+    if (this._cmpUnsubs) { this._cmpUnsubs.forEach(u => { try { u(); } catch {} }); this._cmpUnsubs = []; }
+    if (this._cmpSeries) this._cmpSeries.forEach(c => { try { this.chart.removeSeries(c.s); } catch {} });
+    this._cmpSeries = [];
+    if (!list.length || !this.state.plan) { this.updateWatermark(); return; }
+    for (const it of list) {
+      const ad = adapterById(it.src); if (!ad) continue;
+      const color = it.color || CMP_COLORS[this._cmpSeries.length % CMP_COLORS.length];
+      let s; try { s = this.chart.addSeries(LWC.LineSeries, { color, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: (ad.labelOf && ad.labelOf(it.sym)) || it.sym }, 0); } catch { continue; }
+      this._cmpSeries.push({ s, src: it.src, sym: it.sym, color, bars: [] });
+    }
+    await this.refreshCompares(gen);
+  }
+  async refreshCompares(gen) {
+    if (gen == null) gen = this.state.gen;
+    if (!this._cmpSeries || !this.state.plan) return;
+    const spec = this.state.plan.spec;
+    for (const c of this._cmpSeries) {
+      try {
+        const ad = adapterById(c.src); if (!ad) continue;
+        const plan = planTimeframe(spec, ad); if (!plan) continue;
+        const need = Math.max(300, (this.state.agg.length || 400) * (plan.ratio || 1));
+        const { bars } = await fetchHistory(ad, c.sym, plan.src, null, 8, need);
+        if (gen !== this.state.gen) return;
+        const agg = (plan.native && plan.ratio === 1) ? bars : aggregate(bars, plan);
+        c.bars = agg;
+        try { c.s.setData(agg.map(b => ({ time: toChartTime(b.t), value: b.c }))); } catch {}
+      } catch (e) { console.warn('compare', c.sym, e); }
+    }
+    this._cmpUnsubs = (this._cmpSeries || []).map(c => Quotes.sub(c.src, c.sym, s => {
+      if (s.last == null || !c.bars.length || !this.state.plan) return;
+      const last = c.bars[c.bars.length - 1], buck = this.state.plan.bucket(Date.now());
+      if (buck === last.t) { last.c = s.last; if (s.last > last.h) last.h = s.last; if (s.last < last.l) last.l = s.last; }
+      else c.bars.push({ t: buck, o: s.last, h: s.last, l: s.last, c: s.last, v: 0 });
+      try { c.s.update({ time: toChartTime(c.bars[c.bars.length - 1].t), value: c.bars[c.bars.length - 1].c }); } catch {}
+    }));
+    if (!this.hovering) this.updateLegend(null);
+  }
+  addCompare(src, sym) {
+    const ad = adapterById(src); if (!ad) return;
+    sym = ad.normalizeSymbol(sym);
+    if (src === this.state.source && sym === this.state.symbol) { toast('Already the main symbol'); return; }
+    this.cfg.compare = this.cfg.compare || [];
+    if (this.cfg.compare.some(x => x.src === src && x.sym === sym)) { toast('Already compared'); return; }
+    const color = CMP_COLORS[this.cfg.compare.length % CMP_COLORS.length];
+    this.cfg.compare.push({ src, sym, color });
+    if (chartPrefs().scale === 'normal' && this.cfg.compare.length === 1) {
+      setChartPrefs({ scale: 'percent' });
+      toast('Compared on a percent scale — change it in Settings if you want');
+    }
+    App.saveCell(this);
+    this.loadCompares();
+  }
+  removeCompare(src, sym) {
+    this.cfg.compare = (this.cfg.compare || []).filter(x => !(x.src === src && x.sym === sym));
+    App.saveCell(this);
+    this.loadCompares();
   }
 }
 
@@ -1989,7 +2169,7 @@ const fmtSpan = ms => { ms = Math.abs(ms); const d = Math.floor(ms / DAY), h = M
 let _mctx = null; const measure = (txt, font) => { if (!_mctx) _mctx = document.createElement('canvas').getContext('2d'); _mctx.font = font; return _mctx.measureText(txt).width; };
 
 const Draw = {
-  tool: null, magnet: store.get('magnet', false), lockAll: store.get('lockAll', false), hideAll: false,
+  tool: null, magnet: store.get('magnet', false), stay: store.get('drawStay', false), lockAll: store.get('lockAll', false), hideAll: false,
   sel: null,           // {key, id}
   creating: null,      // {cell, d, idx, downX, downY, moved}
   drag: null,          // {cell, d, mode, idx, L0, p0, orig, before}
@@ -2143,7 +2323,7 @@ const Draw = {
   finishCreate() {
     const c = this.creating; if (!c) return; this.creating = null;
     const key = c.cell.key, before = this.snapshot(key); this.list(key).push(c.d); this.commit(key, before);
-    this.sel = { key, id: c.d.id }; this.setTool(null); App.refreshAll(); UI.renderEditBar(c.d.type === 'text');
+    const keep = this.stay && this.tool; this.sel = { key, id: c.d.id }; this.setTool(keep || null); App.refreshAll(); UI.renderEditBar(!keep && c.d.type === 'text');
   },
   linePrice(d, t, cell) { const LA = cell.timeToLogical(d.pts[0].t), LB = cell.timeToLogical(d.pts[1].t), L = cell.timeToLogical(t); return LA === LB ? d.pts[0].p : d.pts[0].p + (d.pts[1].p - d.pts[0].p) * (L - LA) / (LB - LA); },
   setPoint(cell, d, idx, q) {
@@ -2270,17 +2450,18 @@ const App = {
       let ad = adapterById(source);
       if (ad.advanced && !fromHash) ad = adapterById('dukascopy'); // MT5 / OANDA need setup: never start on them
       return { source: ad.id, syms, symbol: symbol || syms[ad.id] || ad.defaultSymbol, tf, type: (c && c.type) || 'candles',
-               inds: (c && Array.isArray(c.inds)) ? c.inds : DEFAULT_INDICATORS(store.get('ema2', '50,72,104'), store.get('macd', null)) };
+               inds: (c && Array.isArray(c.inds)) ? c.inds : DEFAULT_INDICATORS(store.get('ema2', '50,72,104'), store.get('macd', null)),
+               compare: (c && Array.isArray(c.compare)) ? c.compare : [] };
     }
     const c = store.get('cellcfg' + i, null); if (c) { const r = { syms: {}, ...c }; if (adapterById(r.source).advanced) { r.source = 'dukascopy'; r.symbol = r.syms.dukascopy || 'XAU/USD'; } return r; }
     const c0 = this.cells[0] ? this.cells[0].state : { source: 'binance_spot', symbol: 'BTCUSDT' };
-    return { source: c0.source, syms: { [c0.source]: c0.symbol }, symbol: c0.symbol, tf: ['1h', '15m', '4h', '1D'][i], type: 'candles', inds: DEFAULT_INDICATORS('50,72,104') };
+    return { source: c0.source, syms: { [c0.source]: c0.symbol }, symbol: c0.symbol, tf: ['1h', '15m', '4h', '1D'][i], type: 'candles', inds: DEFAULT_INDICATORS('50,72,104'), compare: (c && c.compare) || [] };
   },
   saveCell(cell) {
     const st = cell.state, cfg = cell.cfg;
     cfg.source = st.source; cfg.symbol = st.symbol; cfg.tf = st.tf; cfg.syms[st.source] = st.symbol;
-    if (cell.idx === 0) { store.set('source', st.source); store.set('symbol_' + st.source, st.symbol); store.set('tf', st.tf); store.set('cellcfg0', { type: cfg.type, inds: cfg.inds }); }
-    else store.set('cellcfg' + cell.idx, { source: st.source, syms: cfg.syms, symbol: st.symbol, tf: st.tf, type: cfg.type, inds: cfg.inds });
+    if (cell.idx === 0) { store.set('source', st.source); store.set('symbol_' + st.source, st.symbol); store.set('tf', st.tf); store.set('cellcfg0', { type: cfg.type, inds: cfg.inds, compare: cfg.compare || [] }); }
+    else store.set('cellcfg' + cell.idx, { source: st.source, syms: cfg.syms, symbol: st.symbol, tf: st.tf, type: cfg.type, inds: cfg.inds, compare: cfg.compare || [] });
   },
   setLayout(n) {
     n = [1, 2, 4].includes(+n) ? +n : 1; this.layout = n; store.set('layout', n);
@@ -2557,8 +2738,8 @@ const Picker = {
   isOpen() { return $('picker').classList.contains('open'); },
   open(prefill = '', mode = 'chart') {
     this.mode = mode; this.tab = 'All';
-    if ($('pickTitle')) $('pickTitle').textContent = mode === 'watch' ? 'Add to watchlist' : 'Symbol search';
-    $('pickQ').placeholder = mode === 'watch' ? 'Add to watchlist…' : 'Search';
+    if ($('pickTitle')) $('pickTitle').textContent = mode === 'watch' ? 'Add to watchlist' : mode === 'compare' ? 'Compare symbol' : 'Symbol search';
+    $('pickQ').placeholder = mode === 'watch' ? 'Add to watchlist…' : mode === 'compare' ? 'Overlay a symbol…' : 'Search';
     $('picker').classList.add('open'); $('pickQ').value = prefill; this.sel = 0; $('pickList').scrollTop = 0;
     this.ensureLoaded(); this.render(); setTimeout(() => $('pickQ').focus(), 0);
   },
@@ -2566,7 +2747,9 @@ const Picker = {
   close() { $('picker').classList.remove('open'); },
   refresh() { if (this.isOpen()) this.render(); },
   choose(sym, src) { src = src || (App.active && App.active.ad.id);
-    if (this.mode === 'watch') { Watch.add(src, sym); this.close(); } else App.active.setSymbol(sym, src); },
+    if (this.mode === 'watch') { Watch.add(src, sym); this.close(); }
+    else if (this.mode === 'compare') { App.active.addCompare(src, sym); this.close(); }
+    else App.active.setSymbol(sym, src); },
   /** Every public source in one list (crypto + Dukascopy). Advanced sources stay out. */
   items() {
     const out = []; let any = false, failed = 0, pending = 0;
@@ -2853,6 +3036,7 @@ const UI = {
     $('drawBar').innerHTML = b('', 'Cursor (Esc)', 'cursor', !Draw.tool ? 'active' : '') +
       TOOLS.map(t => b(t.id, t.name + (t.alt ? ` (Alt+${t.alt.slice(3)})` : ''), t.id, Draw.tool === t.id ? 'active' : '')).join('') + '<div class="dsep"></div>' +
       `<button data-dact="magnet" class="${Draw.magnet ? 'on' : ''}" title="Magnet: snap to open/high/low/close">${svg('magnet')}</button>` +
+      `<button data-dact="stay" class="${Draw.stay ? 'on' : ''}" title="Stay in drawing mode">◎</button>` +
       `<button data-dact="lock" class="${Draw.lockAll ? 'on' : ''}" title="Lock all drawings">${svg('lock')}</button>` +
       `<button data-dact="hide" class="${Draw.hideAll ? 'on' : ''}" title="Hide all drawings">${svg('eye')}</button>` +
       `<button data-dact="del" title="Delete selected (Del)"${Draw.sel ? '' : ' disabled'}>${svg('trash')}</button>` +
@@ -2977,6 +3161,8 @@ function applyTheme(t) { THEME = t; store.set('theme', t); document.body.classLi
 
 // ---------- events ----------
 document.addEventListener('click', e => {
+  const cmp = e.target.closest('[data-cmp-del]');
+  if (cmp) { e.preventDefault(); e.stopPropagation(); const [src, ...rest] = cmp.dataset.cmpDel.split(':'); App.active.removeCompare(src, rest.join(':')); return; }
   const star = e.target.closest('[data-star]');
   if (star) { e.preventDefault(); e.stopPropagation(); toggleFav(star.dataset.star); return; }
   const rm = e.target.closest('[data-rm-custom]');
@@ -2993,6 +3179,7 @@ document.addEventListener('click', e => {
   else if (ds.dtool != null) { Draw.setTool(ds.dtool || null); if (window.innerWidth < 760 && ds.dtool) document.body.classList.remove('draw-open'); }
   else if (ds.dact) { const a = ds.dact;
     if (a === 'magnet') { Draw.magnet = !Draw.magnet; store.set('magnet', Draw.magnet); }
+    else if (a === 'stay') { Draw.stay = !Draw.stay; store.set('drawStay', Draw.stay); }
     else if (a === 'lock') { Draw.lockAll = !Draw.lockAll; store.set('lockAll', Draw.lockAll); if (Draw.lockAll) Draw.select(null); }
     else if (a === 'hide') { Draw.hideAll = !Draw.hideAll; App.cells.forEach(c => c.drawPrim.refresh()); }
     else if (a === 'del') Draw.deleteSelected();
@@ -3035,7 +3222,7 @@ function wireUI() {
   $('railHelp').onclick = () => { const b = document.querySelector('[data-dact="help"]'); if (b) b.click(); };
   $('undoBtn').onclick = () => Draw.doUndo(); $('redoBtn').onclick = () => Draw.doRedo();
   $('fullBtn').onclick = () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => {}); };
-  $('compareBtn').onclick = () => { if (App.layout === 1) App.setLayout(2); const c = App.cells[App.cells.length > 1 ? 1 : 0]; App.setActive(c, true); Picker.open(''); };
+  $('compareBtn').onclick = () => Picker.open('', 'compare');
   $('symIcon').onclick = () => Picker.open('');
   Bottom.init();
   $('tf').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); TfQuick.apply(); } else if (e.key === 'Escape') { e.preventDefault(); TfQuick.close(); } e.stopPropagation(); });
@@ -3063,17 +3250,21 @@ function wireUI() {
   $('settingsBtn').onclick = () => {
     $('mt5Url').value = store.get('mt5Url', 'ws://127.0.0.1:8765'); $('dkDayStart').value = String(store.get('dkDayStart', 0)); $('dkSide').value = store.get('dkSide', 'M') === 'B' ? 'B' : 'M';
     $('oandaEnv').value = store.get('oandaEnv', 'practice'); $('oandaToken').value = store.get('oandaToken', ''); $('oandaAccount').value = store.get('oandaAccount', '');
+    ChartSettings.fill();
     $('settings').classList.toggle('open'); };
   $('settingsClose').onclick = () => $('settings').classList.remove('open');
   $('settingsSave').onclick = () => {
     store.set('mt5Url', $('mt5Url').value.trim() || 'ws://127.0.0.1:8765'); store.set('dkDayStart', +$('dkDayStart').value); store.set('dkSide', $('dkSide').value);
     store.set('oandaEnv', $('oandaEnv').value); store.set('oandaToken', $('oandaToken').value.trim()); store.set('oandaAccount', $('oandaAccount').value.trim());
+    ChartSettings.save();
     $('settings').classList.remove('open'); delete symCache.oanda;
-    if (App.cells.some(c => c.ad.id === 'mt5')) location.reload(); else App.cells.forEach(c => c.load()); };
+    if (App.cells.some(c => c.ad.id === 'mt5')) location.reload(); else App.cells.forEach(c => { c.applyChartPrefs(); c.load(); }); };
   // Keyboard shortcuts (TradingView-style)
   document.addEventListener('keydown', e => {
     const ae = document.activeElement, inField = ae && /INPUT|SELECT|TEXTAREA/.test(ae.tagName);
     if (e.key === 'Escape') {
+      if (CtxMenu.isOpen()) { CtxMenu.close(); return; }
+      if ($('tzPop').classList.contains('open')) { $('tzPop').classList.remove('open'); return; }
       if (TfQuick.isOpen()) { TfQuick.close(); return; }
       if (TfMenu.isOpen()) { TfMenu.close(); return; }
       if (Picker.isOpen()) { Picker.close(); return; }
@@ -3092,7 +3283,7 @@ function wireUI() {
     if (e.altKey && !e.ctrlKey && !e.metaKey) {
       const m = { KeyH: () => Draw.quick(cell, 'hline'), KeyV: () => Draw.quick(cell, 'vline'), KeyJ: () => Draw.quick(cell, 'hray'), KeyT: () => Draw.setTool('trend'), KeyF: () => Draw.setTool('fib'),
         KeyA: () => UI.openAlerts(cell.cross && cell.cross.price), KeyS: () => screenshot(true), KeyI: () => UI.openInd(), KeyW: () => toggleWatch(!document.body.classList.contains('watch-open')),
-        KeyR: () => { const n = cell.disp.length; cell.chart.priceScale('right').applyOptions({ autoScale: true }); cell.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 160), to: n + 8 }); } }[e.code];
+        KeyR: () => cell.resetView(), KeyG: () => GoToDate.open() }[e.code];
       if (m) { e.preventDefault(); m(); } return;
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -3124,6 +3315,159 @@ function wireUI() {
   window.__app = { App, Draw, Alerts, Watch, Quotes, UI, Picker, TfMenu, TfQuick, parseTfInput, screenshot, applyTheme, IND, INDICATORS };
   Object.assign(window.ChartLib, { IND, INDICATORS, newInstance, histColor });
 })();
+
+// ============================================================================
+//  TradingView-parity UI: context menu, chart settings, go-to-date, time zone
+// ============================================================================
+const TZ_OPTIONS = [
+  ['device', 'Device time'],
+  [-8, 'UTC-8'], [-5, 'UTC-5'], [-4, 'UTC-4'], [0, 'UTC'],
+  [1, 'UTC+1'], [2, 'UTC+2'], [3, 'UTC+3'], [8, 'UTC+8 (Malaysia)'],
+  [9, 'UTC+9'], [10, 'UTC+10'],
+];
+const ChartSettings = {
+  fill() {
+    const p = chartPrefs();
+    $('csUp').value = p.up; $('csDown').value = p.down;
+    $('csWicks').checked = p.wicks !== false; $('csBorders').checked = !!p.borders;
+    $('csGrid').checked = p.grid !== false; $('csWm').checked = !!p.watermark;
+    $('csScale').value = p.scale || 'normal'; $('csInvert').checked = !!p.invert; $('csAuto').checked = p.auto !== false;
+    const cur = store.get('chartTz', 'device');
+    $('csTz').innerHTML = TZ_OPTIONS.map(([v, l]) => `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${l}</option>`).join('');
+  },
+  save() {
+    const tz = $('csTz').value;
+    setChartPrefs({
+      up: $('csUp').value, down: $('csDown').value,
+      wicks: $('csWicks').checked, borders: $('csBorders').checked,
+      grid: $('csGrid').checked, watermark: $('csWm').checked,
+      scale: $('csScale').value, invert: $('csInvert').checked, auto: $('csAuto').checked,
+    });
+    if (String(tz) !== String(store.get('chartTz', 'device'))) setTimeZone(tz === 'device' ? 'device' : +tz);
+  }
+};
+const GoToDate = {
+  open() {
+    const cell = App.active; if (!cell) return;
+    const t = (cell.cross && cell.cross.time) || (cell.disp.length ? cell.disp[cell.disp.length - 1].t : Date.now());
+    const d = new Date(t + TZ_SHIFT * 1000); // display in selected TZ as if UTC
+    const p2 = n => String(n).padStart(2, '0');
+    $('gtDate').value = `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}T${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`;
+    openDlg('gotoDlg');
+    setTimeout(() => $('gtDate').focus(), 0);
+  },
+  go() {
+    const v = $('gtDate').value; if (!v) return;
+    // datetime-local is interpreted as local; we treated the field as selected-TZ wall time
+    const parts = v.split(/[-T:]/).map(Number);
+    const utcMs = Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3] || 0, parts[4] || 0, parts[5] || 0);
+    const t = utcMs - TZ_SHIFT * 1000;
+    if (!App.active.goToTime(t)) toast('No data at that date');
+    closeDlg('gotoDlg');
+  }
+};
+const CtxMenu = {
+  isOpen() { return $('ctxMenu').classList.contains('open'); },
+  close() { $('ctxMenu').classList.remove('open'); },
+  open(ev, cell) {
+    ev.preventDefault();
+    const zone = this.zone(cell, ev);
+    const p = chartPrefs();
+    const price = cell.cross && cell.cross.price;
+    const hasDraw = !!Draw.selected();
+    const item = (act, label, kbd, checked) =>
+      `<button type="button" data-ctx="${act}">${checked != null ? `<span class="ctx-check">${checked ? '✓' : ''}</span>` : ''}<span>${label}</span>${kbd ? `<kbd>${kbd}</kbd>` : ''}</button>`;
+    const sep = '<div class="ctx-sep"></div>';
+    let html = '';
+    if (zone === 'price') {
+      html = item('scale:normal', 'Regular', '', p.scale === 'normal') +
+        item('scale:log', 'Logarithmic', '', p.scale === 'log') +
+        item('scale:percent', 'Percent', '', p.scale === 'percent') + sep +
+        item('invert', 'Invert scale', '', !!p.invert) +
+        item('auto', 'Auto-scale', '', p.auto !== false) + sep +
+        item('reset', 'Reset view', 'Alt+R');
+    } else if (zone === 'time') {
+      html = item('goto', 'Go to date…', 'Alt+G') + item('reset', 'Reset view', 'Alt+R');
+    } else {
+      if (hasDraw) html += item('deldraw', 'Remove drawing', 'Del') + sep;
+      html += item('reset', 'Reset view', 'Alt+R') +
+        item('goto', 'Go to date…', 'Alt+G') +
+        item('interval', 'Change interval…') +
+        item('compare', 'Compare symbol…') + sep +
+        (price != null ? item('alert', `Add alert at ${fmtNum(price)}`, 'Alt+A') + item('hline', `Horizontal line at ${fmtNum(price)}`, 'Alt+H') + item('copy', 'Copy price') + sep : '') +
+        item('shot', 'Take snapshot', 'Alt+S') +
+        item('settings', 'Chart settings…');
+    }
+    const m = $('ctxMenu'); m.innerHTML = html; m.classList.add('open');
+    const x = Math.min(ev.clientX, innerWidth - 260), y = Math.min(ev.clientY, innerHeight - m.offsetHeight - 8);
+    m.style.left = Math.max(8, x) + 'px'; m.style.top = Math.max(8, y) + 'px';
+  },
+  zone(cell, ev) {
+    const r = cell.chartEl.getBoundingClientRect();
+    const x = ev.clientX - r.left, y = ev.clientY - r.top;
+    let pw = 56; try { pw = cell.chart.priceScale('right').width() || 56; } catch {}
+    if (x >= r.width - pw - 4) return 'price';
+    if (y >= r.height - 30) return 'time';
+    return 'pane';
+  },
+  run(act) {
+    const cell = App.active; this.close(); if (!cell || !act) return;
+    if (act.startsWith('scale:')) { setChartPrefs({ scale: act.slice(6) }); return; }
+    if (act === 'invert') { setChartPrefs({ invert: !chartPrefs().invert }); return; }
+    if (act === 'auto') { setChartPrefs({ auto: !chartPrefs().auto }); return; }
+    if (act === 'reset') cell.resetView();
+    else if (act === 'goto') GoToDate.open();
+    else if (act === 'interval') TfQuick.open();
+    else if (act === 'compare') Picker.open('', 'compare');
+    else if (act === 'alert') UI.openAlerts(cell.cross && cell.cross.price);
+    else if (act === 'hline') Draw.quick(cell, 'hline');
+    else if (act === 'copy') {
+      const v = cell.cross && cell.cross.price;
+      if (v != null) { const s = String(v); if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(s).then(() => toast('Copied ' + s)).catch(() => toast(s)); else toast(s); }
+    } else if (act === 'shot') screenshot(true);
+    else if (act === 'settings') { ChartSettings.fill(); $('settings').classList.add('open'); }
+    else if (act === 'deldraw') Draw.deleteSelected();
+  }
+};
+const TzPop = {
+  open() {
+    const cur = store.get('chartTz', 'device');
+    $('tzPop').innerHTML = TZ_OPTIONS.map(([v, l]) => `<button type="button" data-tz="${v}" class="${String(v) === String(cur) ? 'on' : ''}">${l}</button>`).join('');
+    const r = $('clock').getBoundingClientRect();
+    const pop = $('tzPop'); pop.classList.add('open');
+    pop.style.left = Math.max(8, r.right - 180) + 'px';
+    pop.style.top = (r.top - pop.offsetHeight - 6) + 'px';
+  },
+  close() { $('tzPop').classList.remove('open'); }
+};
+const TVFeatures = {
+  init() {
+    $('cells').addEventListener('contextmenu', e => {
+      const cell = App.cells.find(c => c.el.contains(e.target));
+      if (!cell) return;
+      App.setActive(cell);
+      CtxMenu.open(e, cell);
+    });
+    $('ctxMenu').addEventListener('click', e => {
+      const b = e.target.closest('[data-ctx]'); if (b) CtxMenu.run(b.dataset.ctx);
+    });
+    document.addEventListener('pointerdown', e => {
+      if (CtxMenu.isOpen() && !e.target.closest('#ctxMenu')) CtxMenu.close();
+      if ($('tzPop').classList.contains('open') && !e.target.closest('#tzPop, #clock')) TzPop.close();
+    }, true);
+    $('clock').addEventListener('click', () => { if ($('tzPop').classList.contains('open')) TzPop.close(); else TzPop.open(); });
+    $('tzPop').addEventListener('click', e => {
+      const b = e.target.closest('[data-tz]'); if (!b) return;
+      const v = b.dataset.tz;
+      setTimeZone(v === 'device' ? 'device' : +v);
+      TzPop.close();
+    });
+    $('gtGo').onclick = () => GoToDate.go();
+    $('gtDate').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); GoToDate.go(); } e.stopPropagation(); });
+  }
+};
+if (window.__app) Object.assign(window.__app, { CtxMenu, ChartSettings, GoToDate, TzPop, setTimeZone, chartPrefs, setChartPrefs });
+TVFeatures.init();
 
 </script>
 </body>
