@@ -26,7 +26,6 @@
   input:focus, select:focus { border-color:var(--accent); }
   input[type=color] { padding:0 2px; width:34px; height:26px; }
   #symbol { width:120px; text-transform:uppercase; font-weight:600; cursor:pointer; }
-  #tf { width:64px; font-weight:600; } #tfSel { width:28px; padding:4px 2px; }
   button { background:transparent; color:var(--text); border:1px solid transparent; border-radius:4px; padding:4px 7px; cursor:pointer; font-size:13px; font-family:inherit; }
   button:hover { background:var(--hover); } button:disabled { opacity:.35; cursor:default; }
   button.active { color:#fff; background:var(--accent); } button.on { color:var(--accent); }
@@ -135,12 +134,13 @@
   @media (max-width: 760px) {
     .toolbar { flex-direction:column; align-items:stretch; flex-wrap:nowrap; gap:4px; padding:4px 6px; min-width:0; }
     html, body, #app { max-width:100vw; overflow:hidden; }
-    .bar { min-width:0; max-width:100%; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; gap:4px; }
+    .bar { min-width:0; max-width:100%; flex-wrap:nowrap; overflow:hidden; gap:4px; }
     .bar::-webkit-scrollbar { display:none; } .bar > * { flex:0 0 auto; }
-    #pairs, #presets, #favs { display:flex; gap:2px; flex:0 0 auto; }
+    #favWrap { flex:1 1 0; min-width:40px; }
+    #pairs, #presets { display:flex; gap:2px; flex:0 0 auto; }
     input, select, button { font-size:16px; } /* avoid iOS zoom on focus */
     button { padding:6px 8px; min-height:34px; }
-    #symbol { width:108px; } #tf { width:58px; } #market { max-width:112px; } #ctype { max-width:96px; } #layoutSel { max-width:84px; }
+    #symbol { width:108px; } #market { max-width:112px; } #ctype { max-width:96px; } #layoutSel { max-width:84px; }
     #status { margin-left:0; font-size:11px; max-width:130px; }
     .mob { display:inline-block; } .desk { display:none; }
     .legend { font-size:11px; line-height:15px; left:6px; } .legend .sym { font-size:13px; } .legend .hint { display:none; }
@@ -153,10 +153,11 @@
     .wl-x { display:flex; position:static; transform:none; grid-column:4; } .wl-row { grid-template-columns:1fr auto 64px auto; }
     #settings { left:4px; right:4px; width:auto; top:4px; max-height:calc(100dvh - 8px); overflow-y:auto; }
     #picker { left:0; top:0; width:100vw; max-width:100vw; height:100dvh; border-radius:0; padding-top:env(safe-area-inset-top); }
+    #tfMenu { left:0 !important; right:0 !important; top:auto !important; bottom:0; width:100%; max-width:100%; max-height:70dvh; border-radius:12px 12px 0 0; }
+    #tfQuick { top:auto; bottom:calc(12px + env(safe-area-inset-bottom)); left:12px; right:12px; transform:none; width:auto; }
     .dlg { top:0; left:0; transform:none; width:100vw; max-width:100vw; height:100dvh; max-height:100dvh; border-radius:0; }
     #indList { max-height:none; }
     #editBar { top:auto; bottom:calc(10px + env(safe-area-inset-bottom)); max-width:96vw; overflow-x:auto; }
-    #tfSel { width:34px; }
   }
 </style>
 <style>
@@ -179,24 +180,65 @@
   .sym-pill #symbol { border:0; background:transparent; width:auto; min-width:60px; max-width:150px; padding:0; font-weight:700; font-size:15px; cursor:pointer; color:var(--text); }
   .pill-ic { color:var(--muted); display:flex; }
   .coin { width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#fff; flex:0 0 22px; letter-spacing:-.02em; }
-  .tf-box { display:flex; align-items:center; height:34px; border-radius:4px; }
-  .tf-box:hover { background:var(--hover); }
-  .tf-box #tf { border:0; background:transparent; width:46px; font-weight:700; font-size:14px; text-align:center; padding:0 2px; }
-  .tf-box #tf:focus { background:var(--panel2); outline:1px solid var(--accent); }
-  .tf-box #tfSel { border:0; background:transparent; width:20px; padding:0; color:var(--muted); cursor:pointer; }
-  #favs { display:flex; gap:2px; align-items:center; }
-  #favs .fav { border:0; } #favs .fav button { height:30px; padding:0 7px; font-weight:600; color:var(--text); }
+  #tfMenuBtn { flex:0 0 auto; width:28px; min-width:28px; height:30px; padding:0; color:var(--muted); }
+  #tfMenuBtn:hover, #tfMenuBtn.on { color:var(--text); background:var(--hover); }
+  #tfMenuBtn svg { display:block; }
+  #tfScrim { display:none; position:fixed; inset:0; z-index:41; background:rgba(0,0,0,.4); }
+  #tfScrim.on { display:block; }
+  #tfMenu { display:none; position:fixed; z-index:42; width:280px; max-height:min(70vh, 560px); overflow:auto; background:var(--panel); border:1px solid var(--border); border-radius:6px; box-shadow:0 8px 28px var(--shadow); }
+  #tfMenu.open { display:block; }
+  .tfm-add { padding:10px 12px; border-bottom:1px solid var(--border); }
+  .tfm-add-t { font-size:13px; font-weight:600; margin-bottom:8px; }
+  .tfm-add-row { display:flex; gap:6px; align-items:center; }
+  .tfm-add-row input { width:64px; padding:6px 8px; }
+  .tfm-add-row select { flex:1; min-width:0; padding:6px 8px; }
+  .tfm-add-row button { flex:0 0 auto; padding:6px 12px; border:1px solid var(--border); border-radius:4px; font-weight:600; }
+  .tfm-add-row button:hover { background:var(--hover); }
+  .tfm-sec-h { display:flex; align-items:center; justify-content:space-between; width:100%; padding:8px 12px; font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); background:transparent; border:0; border-radius:0; text-align:left; }
+  .tfm-sec-h:hover { background:var(--hover); color:var(--text); }
+  .tfm-chev { font-size:11px; }
+  .tfm-row { display:flex; align-items:center; gap:8px; padding:3px 8px 3px 6px; cursor:pointer; min-height:32px; }
+  .tfm-row:hover { background:var(--hover); }
+  .tfm-row.cur { color:var(--accent); }
+  .tfm-row.cur .tfm-name { font-weight:700; }
+  .tfm-name { flex:1; font-size:13px; }
+  .tfm-star { width:28px; min-width:28px; height:28px; padding:0; display:inline-flex; align-items:center; justify-content:center; color:var(--muted); border:0; background:transparent; border-radius:4px; }
+  .tfm-star:hover { background:var(--panel2); color:#f7c948; }
+  .tfm-star.on { color:#f7c948; }
+  .tfm-x { width:24px; min-width:24px; height:24px; padding:0; margin-left:auto; border:0; background:transparent; color:var(--muted); border-radius:4px; font-size:14px; }
+  .tfm-x:hover { background:var(--panel2); color:var(--text); }
+  #tfQuick { display:none; position:fixed; z-index:43; top:56px; left:50%; transform:translateX(-50%); min-width:240px; background:var(--panel); border:1px solid var(--border); border-radius:6px; box-shadow:0 8px 28px var(--shadow); padding:10px 12px; }
+  #tfQuick.open { display:block; }
+  #tfQuick .tfq-h { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+  #tfQuick #tf { width:100%; font-size:16px; font-weight:700; padding:8px 10px; border:1px solid var(--border); background:var(--panel2); border-radius:4px; }
+  #tfQuick #tf:focus { outline:1px solid var(--accent); }
+  #tfQuick .tfq-hint { margin-top:6px; font-size:11px; color:var(--muted); }
+  .toolbar, .bar1 { flex-wrap:nowrap; min-width:0; overflow:hidden; }
+  .bar1 > * { flex:0 0 auto; }
+  .bar1 .grow { flex:0 0 8px; }
+  .bar1 > #favWrap { position:relative; flex:1 1 240px; min-width:200px; display:flex; align-items:center; overflow:hidden; }
+  #favs { display:flex; gap:2px; align-items:center; flex:1 1 auto; min-width:0; overflow-x:auto; overflow-y:hidden; scrollbar-width:thin; scrollbar-color:transparent transparent; -webkit-overflow-scrolling:touch; touch-action:pan-x; }
+  #favs:hover, #favs:focus-within { scrollbar-color:#5a5e69 transparent; }
+  #favs::-webkit-scrollbar { height:3px; }
+  #favs::-webkit-scrollbar-thumb { background:transparent; border-radius:2px; }
+  #favs:hover::-webkit-scrollbar-thumb, #favs:focus-within::-webkit-scrollbar-thumb { background:#5a5e69; }
+  #favs .fav { border:0; flex:0 0 auto; } #favs .fav button { height:30px; padding:0 8px; font-weight:700; font-size:13px; color:var(--text); border-radius:4px; }
   #favs .fav button.active { background:transparent; color:var(--accent); }
-  #favs .fav button.x { padding:0 3px; color:var(--muted); font-size:12px; opacity:0; } #favs .fav:hover button.x { opacity:1; }
-  #favs .fav.cur button { color:var(--accent); }
-  #favAdd.on { color:#f7c948; }
+  .fav-fade { position:absolute; top:0; bottom:0; width:22px; pointer-events:none; opacity:0; z-index:1; transition:opacity .15s; }
+  .fav-fade-l { left:0; background:linear-gradient(to right, var(--panel), transparent); }
+  .fav-fade-r { right:0; background:linear-gradient(to left, var(--panel), transparent); }
+  #favWrap.can-left .fav-fade-l, #favWrap.can-right .fav-fade-r { opacity:1; }
+  .fav-arrow { position:absolute; top:50%; transform:translateY(-50%); z-index:2; width:18px; height:28px; min-width:18px; padding:0; display:none; align-items:center; justify-content:center; background:var(--panel); border:1px solid var(--border); border-radius:4px; color:var(--text); font-size:16px; line-height:1; }
+  #favWrap.can-left .fav-prev, #favWrap.can-right .fav-next { display:inline-flex; }
+  .fav-prev { left:0; } .fav-next { right:0; }
   .ct-box { display:flex; align-items:center; height:34px; border-radius:4px; padding-left:6px; } .ct-box:hover { background:var(--hover); }
   .ct-box .ct-ic { display:flex; color:var(--text); }
   .ct-box select, #market, #layoutSel { border:0; background:transparent; color:var(--text); height:34px; cursor:pointer; font-size:13px; }
   .ct-box select { width:22px; padding:0; color:transparent; } .ct-box select option { color:var(--text); background:var(--panel2); }
   #market { max-width:190px; } #market:hover, #layoutSel:hover { background:var(--hover); }
   select option, select optgroup { background:var(--panel2); color:var(--text); }
-  #status { margin:0 6px; max-width:240px; }
+  #status { margin:0 6px; max-width:200px; flex:0 0 auto; }
+  #market { max-width:130px; }
   #status:not(.err)::before { content:''; display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--up); margin-right:6px; vertical-align:1px; }
   #status.err::before { content:''; display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--down); margin-right:6px; vertical-align:1px; }
   /* drawing toolbar */
@@ -253,14 +295,21 @@
   #ranges button { height:26px; padding:0 8px; color:var(--text); border:0; font-size:13px; } #ranges button:hover { background:var(--hover); } #ranges button.active { color:var(--accent); }
   #clock { color:var(--text); font-variant-numeric:tabular-nums; padding:0 6px; }
   .cell { background:var(--bg); } #cells { background:var(--panel2); gap:4px; }
+  @media (max-width: 1180px) {
+    #syncWrap, #undoBtn, #redoBtn { display:none; }
+    .bar1 > #favWrap { min-width:160px; flex-basis:180px; }
+  }
   @media (max-width: 760px) {
     .mob { display:inline-flex !important; } .desk { display:none !important; }
     .toolbar { border-bottom-width:1px; padding:2px 4px; min-height:0; }
     .bar1 { min-height:44px; flex-wrap:wrap; row-gap:0; }
+    .bar1 > #favWrap { flex:1 1 140px; min-width:120px; }
+    #tfMenu, #tfMenu.open { left:0 !important; right:0 !important; top:auto !important; bottom:0 !important; width:auto !important; max-width:100% !important; max-height:70dvh; border-radius:12px 12px 0 0; }
+    #tfQuick { top:auto; bottom:calc(12px + env(safe-area-inset-bottom)); left:12px; right:12px; transform:none; width:auto; }
     .bar1 .grow, .bar1 .sep { display:none; } button.ic, button.tb { min-width:32px; padding:0 5px; }
     #rail, #symInfo, .wl-cols { display:none !important; }
     #bottomBar { height:34px; border-top-width:1px; overflow-x:auto; } #bottomBar #ranges { display:flex; white-space:nowrap; }
-    .sym-pill #symbol { max-width:110px; font-size:15px; } .tf-box #tf { width:44px; font-size:15px; }
+    .sym-pill #symbol { max-width:110px; font-size:15px; }
     #market { max-width:92px; font-size:12px; } #layoutSel { max-width:74px; font-size:12px; } #status { display:none; }
     .wl-row { grid-template-columns:1fr auto 64px auto; }
     .qbox .q { min-width:78px; padding:2px 6px; } .qbox .q b { font-size:12px; }
@@ -277,9 +326,8 @@
       <div class="sym-pill" id="symPill" title="Symbol search (or just start typing)"><span class="coin" id="symIcon"></span><input id="symbol" value="BTCUSDT" readonly spellcheck="false" autocomplete="off"><span class="pill-ic"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg></span></div>
       <button id="compareBtn" class="ic" title="Open another symbol beside this chart"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
       <div class="sep"></div>
-      <div class="tf-box" title="Type any timeframe (7s, 13m, 3h, 2D, 3M…) and press Enter"><input id="tf" value="1h" spellcheck="false" autocomplete="off" autocapitalize="none" enterkeyhint="go"><select id="tfSel" title="Timeframe list"></select></div>
-      <span id="favs"></span>
-      <button id="favAdd" class="ic" title="Star this timeframe – starred ones stay as buttons here"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.4L12 16l-4.9 2.7 1.1-5.4-4-3.7 5.4-.6z"/></svg></button>
+      <div id="favWrap"><button type="button" id="favPrev" class="fav-arrow fav-prev" title="Earlier timeframes" aria-label="Earlier timeframes">‹</button><span class="fav-fade fav-fade-l"></span><span id="favs"></span><span class="fav-fade fav-fade-r"></span><button type="button" id="favNext" class="fav-arrow fav-next" title="More timeframes" aria-label="More timeframes">›</button></div>
+      <button type="button" id="tfMenuBtn" class="ic" title="Time interval" aria-label="Time interval" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
       <button id="watchBtn" class="ic mob" title="Watchlist (Alt+W)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg></button>
       <div class="sep"></div>
       <div class="ct-box" title="Chart type"><span class="ct-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16M17 4v16"/><rect x="5" y="8" width="4" height="7" rx="1" fill="currentColor"/><rect x="15" y="6" width="4" height="9" rx="1"/></svg></span><select id="ctype"></select></div>
@@ -350,11 +398,14 @@
     <input id="alPrice" type="number" step="any" inputmode="decimal" placeholder="Price"><input id="alNote" placeholder="Note (optional)"><button id="alCreate" class="active">Create</button><button id="alTest" title="Play the alert sound">🔊</button></div>
     <p class="note" id="alPerm"></p><h4>All alerts</h4><div id="alList"></div></div></div>
 <div id="helpDlg" class="dlg" role="dialog"><div class="dlg-h"><span>Keyboard shortcuts</span><button data-close="helpDlg">✕</button></div>
-  <div class="dlg-b"><div class="kbd"><b>0-9</b><span>type a timeframe (e.g. 7m, 45s, 3h, 2D) + Enter</span><b>A-Z</b><span>symbol search</span><b>/</b><span>indicators</span>
+  <div class="dlg-b"><div class="kbd"><b>0-9</b><span>Change interval (15 = 15 minutes, 3h, D, W, M) + Enter</span><b>A-Z</b><span>symbol search</span><b>/</b><span>indicators</span>
   <b>Alt+H</b><span>horizontal line at the crosshair</span><b>Alt+J</b><span>horizontal ray</span><b>Alt+V</b><span>vertical line</span><b>Alt+T</b><span>trend line tool</span><b>Alt+F</b><span>fib retracement tool</span>
   <b>Alt+A</b><span>alert at the crosshair price</span><b>Alt+S</b><span>save screenshot (PNG)</span><b>Alt+W</b><span>watchlist</span><b>Alt+R</b><span>reset chart view</span>
   <b>Del</b><span>delete selected drawing</span><b>Ctrl+Z / Ctrl+Y</b><span>undo / redo drawings</span><b>Esc</b><span>cancel tool · deselect · close dialogs</span></div>
   <p class="note">Drawing: pick a tool, then click (or press-drag) the points. Drawings are saved per symbol and keep their time/price on every timeframe. Drag a drawing to move it, drag its handles to reshape it.</p></div></div>
+<div id="tfScrim"></div>
+<div id="tfMenu" role="menu" aria-label="Time interval"></div>
+<div id="tfQuick" role="dialog" aria-label="Change interval"><div class="tfq-h">Change interval</div><input id="tf" value="1h" spellcheck="false" autocomplete="off" autocapitalize="none" enterkeyhint="go" aria-label="Interval"><div class="tfq-hint">15 = 15 minutes · 3h · 45s · D · W · M</div></div>
 <div id="toasts"></div>
 <script>
 'use strict';
@@ -864,7 +915,26 @@ function mt5Adapter() {
 // send from a hosted page (GitHub Pages) or http://localhost, but NOT from a page opened as file://.
 // ---------------------------------------------------------------------------
 let jsonpSeq = 0;
-function jsonp(url, timeout = 15000) {
+// A single queue for every Dukascopy call (chart history, live ticks, watchlist). Without it the
+// watchlist's 5 symbols + a mid (bid+ask) history page + ticks all fire at once and Dukascopy
+// answers with onerror ("blocked or rate-limited"), leaving the chart empty. Concurrency 2 lets
+// a mid-price bid/ask pair run together; everything else waits. Failed calls retry with backoff.
+const DkQ = { conc: 2, n: 0, q: [], spacing: 220, last: 0,
+  enqueue(prio, fn) {
+    return new Promise((resolve, reject) => { this.q.push({ prio, fn, resolve, reject }); this.q.sort((a, b) => a.prio - b.prio); this.kick(); });
+  },
+  kick() {
+    if (this.n >= this.conc || !this.q.length) return;
+    const job = this.q.shift(); this.n++;
+    const wait = Math.max(0, this.spacing - (Date.now() - this.last));
+    const run = async () => {
+      try { job.resolve(await job.fn()); } catch (e) { job.reject(e); }
+      finally { this.n--; this.last = Date.now(); this.kick(); }
+    };
+    setTimeout(run, wait);
+  }
+};
+function jsonpOnce(url, timeout) {
   return new Promise((resolve, reject) => {
     const cb = '__jp' + (++jsonpSeq) + '_' + Date.now().toString(36);
     const sc = document.createElement('script');
@@ -879,6 +949,59 @@ function jsonp(url, timeout = 15000) {
     document.head.appendChild(sc);
   });
 }
+async function jsonp(url, timeout = 20000, prio = 2) {
+  let last;
+  for (let i = 0; i < 5; i++) {
+    try { return await DkQ.enqueue(prio, () => jsonpOnce(url, timeout)); }
+    catch (e) { last = e; if (typeof location !== 'undefined' && location.protocol === 'file:') throw e; await sleepMs(Math.min(16000, 700 * 2 ** i) + Math.random() * 250); }
+  }
+  throw last;
+}
+// Memory + IndexedDB cache of Dukascopy source candles (bid/ask kept separate so mid stays exact).
+const DK_IV_MS = { '1SEC': SEC, '10SEC': 10 * SEC, '1MIN': MIN, '5MIN': 5 * MIN, '10MIN': 10 * MIN, '15MIN': 15 * MIN, '30MIN': 30 * MIN, '1HOUR': HOUR, '4HOUR': 4 * HOUR, '1DAY': DAY, '1WEEK': WEEK, '1MONTH': 30 * DAY };
+const dkMem = new Map();
+let dkDbP = null;
+function dkDb() {
+  if (dkDbP) return dkDbP;
+  if (typeof indexedDB === 'undefined') { dkDbP = Promise.resolve(null); return dkDbP; }
+  dkDbP = new Promise(res => {
+    try {
+      const r = indexedDB.open('cc_dk_cache', 1);
+      r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains('bars')) r.result.createObjectStore('bars'); };
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => res(null);
+    } catch { res(null); }
+  });
+  return dkDbP;
+}
+const dkKey = (sym, iv, side) => sym + '\t' + iv + '\t' + side;
+function dkMerge(a, b) {
+  if (!a || !a.length) return b || [];
+  if (!b || !b.length) return a;
+  const m = new Map(); for (const x of a) m.set(x.t, x); for (const x of b) m.set(x.t, x);
+  const out = [...m.values()].sort((p, q) => p.t - q.t);
+  return out.length > 20000 ? out.slice(-20000) : out;
+}
+async function dkCacheGet(key) {
+  if (dkMem.has(key)) return dkMem.get(key);
+  try {
+    const db = await dkDb(); if (!db) return null;
+    const bars = await new Promise(res => { const q = db.transaction('bars').objectStore('bars').get(key); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); });
+    if (bars && bars.length) { dkMem.set(key, bars); return bars; }
+  } catch {}
+  return null;
+}
+function dkCachePut(key, bars) {
+  dkMem.set(key, bars);
+  dkDb().then(db => { if (!db) return; try { db.transaction('bars', 'readwrite').objectStore('bars').put(bars, key); } catch {} }).catch(() => {});
+}
+function rowsToBars(rows) { return rows.map(r => ({ t: r[0], o: r[1], h: r[2], l: r[3], c: r[4], v: r[5] })).sort((a, b) => a.t - b.t); }
+function midBars(B, A) {
+  const am = new Map(A.map(r => [r.t, r])), out = [];
+  for (const b of B) { const a = am.get(b.t); if (!a) continue;
+    out.push({ t: b.t, o: midOf(b.o, a.o), h: midOf(b.h, a.h), l: midOf(b.l, a.l), c: midOf(b.c, a.c), v: b.v }); }
+  return out;
+}
 const DK_ALIAS = { GOLD: 'XAU/USD', SILVER: 'XAG/USD', XAUUSD: 'XAU/USD', XAGUSD: 'XAG/USD', US500: 'USA500.IDX/USD', SPX500: 'USA500.IDX/USD', SPX: 'USA500.IDX/USD',
   NAS100: 'USATECH.IDX/USD', US100: 'USATECH.IDX/USD', USTEC: 'USATECH.IDX/USD', US30: 'USA30.IDX/USD', DJ30: 'USA30.IDX/USD', GER40: 'DEU.IDX/EUR', DAX: 'DEU.IDX/EUR',
   UK100: 'GBR.IDX/GBP', JP225: 'JPN.IDX/JPY', HK50: 'HKG.IDX/HKD', OIL: 'LIGHT.CMD/USD', WTI: 'LIGHT.CMD/USD', USOIL: 'LIGHT.CMD/USD', BRENT: 'BRENT.CMD/USD', UKOIL: 'BRENT.CMD/USD',
@@ -892,7 +1015,7 @@ function dukascopyAdapter() {
     defaultSymbol: 'XAU/USD',
     popular: ['XAU/USD','XAG/USD','EUR/USD','GBP/USD','USD/JPY','AUD/USD','USD/CAD','USD/CHF','GBP/JPY','USA500.IDX/USD','USATECH.IDX/USD','USA30.IDX/USD','LIGHT.CMD/USD','AAPL.US/USD','NVDA.US/USD','TSLA.US/USD'],
     intervals: IV, week: '1WEEK', month: '1MONTH', weekAnchorMs: MONDAY_ANCHOR, nativeAlignMs: 0,
-    get alignOffsetMs() { return (+store.get('dkDayStart', 0) || 0) * HOUR; }, pageLimit: 5000, pagesByTime: true,
+    get alignOffsetMs() { return (+store.get('dkDayStart', 0) || 0) * HOUR; }, pageLimit: 5000, pagesByTime: true, maxReq: 12,
     normalizeSymbol(x) {
       let t = String(x).trim().toUpperCase().replace(/\s+/g, '').replace(/_/g, '/');
       if (DK_ALIAS[t.replace('/', '')]) return DK_ALIAS[t.replace('/', '')];
@@ -906,19 +1029,46 @@ function dukascopyAdapter() {
     // average of its bid and ask candles, which is exactly how they are built here), or 'B' = bid (MT5-style).
     side: () => store.get('dkSide', 'M') === 'B' ? 'B' : 'M',
     endpoint: () => 'freeserv.dukascopy.com · ' + (ad.side() === 'M' ? 'mid (bid+ask)/2' : 'bid'),
-    async getBars(symbol, interval, endTime, n) {
-      const url = os => `${BASE}chart/json3&instrument=${encodeURIComponent(symbol)}&offer_side=${os}&interval=${interval}&splits=true&stocks=true&limit=${n}&time_direction=P&timestamp=${endTime != null ? endTime : Date.now() + 60000}`;
-      const bad = rows => { if (!Array.isArray(rows)) throw Object.assign(new Error(JSON.stringify({ msg: (rows && rows.error) || 'Unknown instrument ' + symbol })), { fatal: true }); };
+    async getBars(symbol, interval, endTime, n, prio) {
+      const end = endTime != null ? endTime : Date.now() + 60000, lim = Math.max(1, n || 1), pr = prio == null ? 1 : prio;
+      const url = (os, count) => `${BASE}chart/json3&instrument=${encodeURIComponent(symbol)}&offer_side=${os}&interval=${interval}&splits=true&stocks=true&limit=${count}&time_direction=P&timestamp=${end}`;
+      const bad = rows => { if (!Array.isArray(rows)) throw Object.assign(new Error(JSON.stringify({ msg: (rows && rows.error) || 'Unknown instrument ' + symbol })), { fatal: /unknown instrument/i.test(String(rows && rows.error)) }); };
       const mid = ad.side() === 'M';
-      if (interval === 'TICK') { const rows = await jsonp(url('B')); bad(rows); // tick rows: [time, bid, ask, bidVol, askVol]
+      if (interval === 'TICK') { const rows = await jsonp(url('B', lim), 8000, pr); bad(rows); // tick rows: [time, bid, ask, bidVol, askVol]
         return rows.map(r => { const p = mid && r[2] > 0 ? midOf(r[1], r[2]) : r[1]; return { t: r[0], o: p, h: p, l: p, c: p, v: 0, bid: r[1], ask: r[2] }; }).sort((a, b) => a.t - b.t); }
-      if (!mid) { const rows = await jsonp(url('B')); bad(rows); return rows.map(r => ({ t: r[0], o: r[1], h: r[2], l: r[3], c: r[4], v: r[5] })).sort((a, b) => a.t - b.t); }
-      const [B, A] = await Promise.all([jsonp(url('B')), jsonp(url('A'))]); bad(B); bad(A);
-      const am = new Map(A.map(r => [r[0], r]));
-      const out = [];
-      for (const b of B) { const a = am.get(b[0]); if (!a) continue; // a candle is only shown when both sides exist (no half-built mid candles)
-        out.push({ t: b[0], o: midOf(b[1], a[1]), h: midOf(b[2], a[2]), l: midOf(b[3], a[3]), c: midOf(b[4], a[4]), v: b[5] }); }
-      return out.sort((a, b) => a.t - b.t);
+      const ivMs = DK_IV_MS[interval] || HOUR;
+      const loadSide = async side => {
+        const key = dkKey(symbol, interval, side);
+        let cached = (await dkCacheGet(key)) || [];
+        const usable = cached.filter(b => b.t <= end);
+        const newest = usable.length ? usable[usable.length - 1].t : 0;
+        const have = usable.length >= lim && (endTime != null ? usable[0].t <= end - (lim - 1) * ivMs * 0.5 : (end - newest) < ivMs * 3);
+        // live/tail: if we already have enough and it's fresh, only refresh a short tail; historical pages use the cache when it covers them
+        const fetchN = have && endTime == null ? Math.min(lim, 40) : lim;
+        const needNet = !have || endTime == null; // always refresh the tail for a live page so the last candle stays current
+        if (needNet) {
+          try {
+            const rows = await jsonp(url(side, fetchN), 20000, pr); bad(rows);
+            cached = dkMerge(cached, rowsToBars(rows));
+            dkCachePut(key, cached);
+          } catch (e) {
+            if (usable.length) return usable; // serve cache if Dukascopy is blocking
+            throw e;
+          }
+        }
+        const out = cached.filter(b => b.t <= end);
+        return out.length > lim && endTime != null ? out.filter(b => b.t > end - (lim + 5) * ivMs * 2).slice(-lim) : (out.length > lim ? out.slice(-lim) : out);
+      };
+      if (!mid) return loadSide('B');
+      const [B, A] = await Promise.all([loadSide('B'), loadSide('A')]);
+      return midBars(B, A); // a candle is only shown when both sides exist (no half-built mid candles)
+    },
+    async cachedBars(symbol, interval, endTime, n) {
+      if (interval === 'TICK' || interval === '@trades') return [];
+      const end = endTime != null ? endTime : Date.now() + 60000, lim = Math.max(1, n || 1);
+      const take = async side => ((await dkCacheGet(dkKey(symbol, interval, side))) || []).filter(b => b.t <= end);
+      if (ad.side() !== 'M') { const b = await take('B'); return b.slice(-lim); }
+      return midBars(await take('B'), await take('A')).slice(-lim);
     },
     liveTrades: true,
     subscribe(symbol, interval, h) {
@@ -928,7 +1078,7 @@ function dukascopyAdapter() {
         while (!stopped) {
           const t0 = Date.now();
           try {
-            const rows = await jsonp(`${BASE}chart/json3&instrument=${encodeURIComponent(symbol)}&offer_side=B&interval=TICK&limit=60&time_direction=P&timestamp=${Date.now() + 60000}`, 8000);
+            const rows = await jsonp(`${BASE}chart/json3&instrument=${encodeURIComponent(symbol)}&offer_side=B&interval=TICK&limit=60&time_direction=P&timestamp=${Date.now() + 60000}`, 8000, 3);
             if (stopped) return;
             if (Array.isArray(rows)) { fails = 0;
               rows.sort((a, b) => a[0] - b[0]);
@@ -944,7 +1094,7 @@ function dukascopyAdapter() {
       const barLoop = async () => {
         while (!stopped && interval !== '@trades') {
           await new Promise(r => setTimeout(r, fails >= 3 ? 30000 : 10000)); if (stopped) return;
-          try { const bars = await ad.getBars(symbol, interval, null, 3); if (!stopped) for (const b of bars) h.onBar(b, 0); } catch {}
+          try { const bars = await ad.getBars(symbol, interval, null, 3, 2); if (!stopped) for (const b of bars) h.onBar(b, 0); } catch {}
         }
       };
       tickLoop(); barLoop();
@@ -1033,22 +1183,24 @@ function tradesToBars(trades, ms = SEC) {
   return out;
 }
 /** Fetch up to `needed` bars ending at endTime (exclusive-ish), walking backwards page by page. */
-async function fetchHistory(ad, symbol, interval, endTime, maxReq, needed) {
+async function fetchHistory(ad, symbol, interval, endTime, maxReq, needed, onChunk) {
   if (interval === '@trades') { // seconds candles built from recent trade history (where the source has it)
     if (!ad.tradeHistory) return { bars: [], exhausted: true };
     const trades = await ad.tradeHistory(symbol, endTime, Math.min(maxReq, 15));
     let bars = tradesToBars(trades); if (endTime != null) bars = bars.filter(b => b.t <= endTime);
+    if (onChunk && bars.length) onChunk(bars);
     return { bars, exhausted: true };
   }
   let all = [], end = endTime, req = 0;
   while (req < maxReq && all.length < needed) {
     const lim = Math.min(ad.pageLimit, Math.max(needed - all.length, 50));
-    let bars = await ad.getBars(symbol, interval, end, lim); req++;
+    let bars = await ad.getBars(symbol, interval, end, lim, 1); req++;
     if (end != null) bars = bars.filter(b => b.t <= end);
     if (all.length) bars = bars.filter(b => b.t < all[0].t);
     if (!bars.length) return { bars: all, exhausted: true };
     all = bars.concat(all);
     end = bars[0].t - 1;
+    if (onChunk) onChunk(all);
     if (bars.length < lim * 0.9 && !ad.pagesByTime) return { bars: all, exhausted: true }; // Dukascopy caps a page by time span, so only an empty page means the end
   }
   return { bars: all, exhausted: false };
@@ -1697,29 +1849,52 @@ class Cell {
     if (gen !== st.gen) return;
     const spec = parseTimeframe(st.tf), plan = planTimeframe(spec, ad);
     if (!plan) { this.setStatus(`Timeframe "${st.tf}" not supported here (try 7m, 3h, 2D, 2W, 3M)`, true); return; }
-    st.plan = plan; st.noMoreHistory = false;
+    const srcKey = ad.id + '\t' + st.symbol + '\t' + plan.src;
+    const keep = st._srcKey === srcKey && st.src.length;
+    st.plan = plan; st.noMoreHistory = false; st._srcKey = srcKey;
     this.chart.applyOptions({ timeScale: { secondsVisible: spec.unit === 's', timeVisible: !this.isDailyPlus() } });
-    st.src = []; st.agg = []; this.renderAll(null); // never show the previous symbol's candles under the new name
+    if (keep) { st.agg = aggregate(st.src, plan); this.renderAll(null); } // same source bars (e.g. 1h → 3h, or a retry): keep them on screen
+    else { st.src = []; st.agg = []; this.renderAll(null); } // never show the previous symbol's candles under the new name
     Draw.onCellLoad(this);
     this.setStatus(`Loading ${st.symbol} ${spec.label}${plan.native ? '' : plan.fromTrades ? ' (from recent trades)' : ' (from ' + plan.src + ')'}…`);
+    if (st._retry) { clearTimeout(st._retry); st._retry = 0; }
+    const needed = Math.ceil(TARGET_BARS * plan.ratio) + plan.ratio;
+    let ranged = false;
+    const paint = (bars, note) => {
+      if (gen !== st.gen || !bars || !bars.length) return;
+      st.src = bars; st.agg = aggregate(bars, plan); this.renderAll(null);
+      if (!ranged) { const n = st.agg.length, w = this.chartEl.clientWidth < 600 ? 70 : 160;
+        this.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - w), to: n + (w > 100 ? 8 : 4) }); ranged = true; }
+      if (note) this.setStatus(note);
+    };
+    if (ad.cachedBars && plan.src !== '@trades') {
+      try { const cached = await ad.cachedBars(st.symbol, plan.src, null, needed); if (cached && cached.length) paint(cached, `Loading ${st.symbol} ${spec.label} (cached)…`); } catch {}
+      if (gen !== st.gen) return;
+    }
     try {
-      const needed = Math.ceil(TARGET_BARS * plan.ratio) + plan.ratio;
-      const { bars, exhausted } = await fetchHistory(ad, st.symbol, plan.src, null, ad.maxReq || MAX_REQ_INITIAL, needed);
+      const { bars, exhausted } = await fetchHistory(ad, st.symbol, plan.src, null, ad.maxReq || MAX_REQ_INITIAL, needed, b => paint(b));
       if (gen !== st.gen) return;
       if (!bars.length && !plan.fromTrades) throw Object.assign(new Error(JSON.stringify({ msg: 'No data for ' + st.symbol })), { fatal: true });
       st.src = bars; st.noMoreHistory = exhausted;
       st.agg = aggregate(bars, plan);
       this.renderAll(null);
-      const n = st.agg.length, w = this.chartEl.clientWidth < 600 ? 70 : 160;
-      this.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - w), to: n + (w > 100 ? 8 : 4) });
+      if (!ranged) { const n = st.agg.length, w = this.chartEl.clientWidth < 600 ? 70 : 160;
+        this.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - w), to: n + (w > 100 ? 8 : 4) }); }
+      const n = st.agg.length;
       this.setStatus(plan.fromTrades && !n ? 'No second history here – candles build from live trades…' : `Loaded ${n} bars · connecting live…`);
       App.onCellLoaded(this);
       this.startLive(gen);
     } catch (e) {
       if (gen !== st.gen) return;
-      st.src = []; st.agg = []; this.renderAll(null);
       let msg = e.message; try { msg = JSON.parse(e.message).msg || msg; } catch {}
+      if (st.agg.length) {
+        this.setStatus(`Could not reach ${ad.short} (${msg}) – showing cached, retrying…`, true);
+        this.startLive(gen);
+        st._retry = setTimeout(() => { if (st.gen === gen) this.load(); }, 5000);
+        return;
+      }
       this.setStatus(e.fatal ? `${ad.short}: ${msg}` : `Could not reach ${ad.short} (${msg})`, true);
+      if (!e.fatal) st._retry = setTimeout(() => { if (st.gen === gen) this.load(); }, 5000);
     }
   }
   async loadMore() {
@@ -2179,8 +2354,13 @@ const Quotes = {
           if (s.src === 'dukascopy') {
             // a chart already streaming this symbol feeds the watchlist itself (App.onPrice) – don't poll it twice
             const shown = App.cells.some(c => c.ad.id === 'dukascopy' && c.state.symbol === s.sym && c.state.liveOk);
-            if (!shown) { const t = await ad.getBars(s.sym, 'TICK', null, 1); if (t.length) this.emit(s.src, s.sym, t[t.length - 1].o, null); } // TICK rows: o = bid
-            if (n % 75 === 0 && hourIv) { const b = await ad.getBars(s.sym, hourIv, null, 30), lim = Date.now() - DAY; let ref = null; for (const x of b) if (x.t + HOUR <= lim) ref = x.c; this.emit(s.src, s.sym, null, ref != null ? ref : b.length ? b[0].o : null, stats24(b.filter(x => x.t + HOUR > lim))); }
+            if (!shown) { const t = await ad.getBars(s.sym, 'TICK', null, 1, 3); if (t.length) this.emit(s.src, s.sym, t[t.length - 1].o, null); } // TICK rows: o = mid (or bid)
+            // 24h change is priority 2 (behind the open chart's history) and staggered so five Dukascopy rows don't fire at once
+            if (hourIv && (n === 0 || n % 75 === 0)) {
+              if (n === 0) await new Promise(r => setTimeout(r, 1200 + (Math.abs(s.sym.split('').reduce((h, c) => (h * 33 + c.charCodeAt(0)) | 0, 0)) % 6) * 600));
+              if (stopped) break;
+              const b = await ad.getBars(s.sym, hourIv, null, 30, 2), lim = Date.now() - DAY; let ref = null; for (const x of b) if (x.t + HOUR <= lim) ref = x.c; this.emit(s.src, s.sym, null, ref != null ? ref : b.length ? b[0].o : null, stats24(b.filter(x => x.t + HOUR > lim)));
+            }
           } else if (hourIv) { const b = await ad.getBars(s.sym, hourIv, null, 26); if (b.length) this.emit(s.src, s.sym, b[b.length - 1].c, (b[b.length - 25] || b[0]).c, stats24(b.slice(-24))); }
           s.fails = 0;
         } catch { s.fails = (s.fails || 0) + 1; wait = Math.min(30000, wait * 2 ** s.fails); } // back off if the feed refuses / rate-limits
@@ -2494,21 +2674,176 @@ const ICONS = {
   help: '<text x="10" y="15" text-anchor="middle" font-size="14" font-weight="bold" fill="currentColor">?</text>',
 };
 const svg = k => `<svg viewBox="0 0 20 20" width="20" height="20">${ICONS[k]}</svg>`;
+
+function parseTfInput(str) {
+  const s = String(str || '').replace(/\s+/g, '');
+  if (!s) return null;
+  if (/^[dDwWmM]$/.test(s)) return parseTimeframe(s.toUpperCase() === 'M' ? '1M' : '1' + s.toUpperCase());
+  if (/^\d+$/.test(s)) return parseTimeframe(s + 'm'); // TradingView: a bare number is minutes
+  return parseTimeframe(s);
+}
+function tfKey(s) { const p = parseTimeframe(s); return p ? p.label.toLowerCase() : ''; }
+function tfShort(s) {
+  const p = parseTimeframe(s); if (!p) return s;
+  if (p.n === 1 && p.unit === 'd') return 'D';
+  if (p.n === 1 && p.unit === 'w') return 'W';
+  if (p.n === 1 && p.unit === 'mo') return 'M';
+  return p.label;
+}
+function tfLong(s) {
+  const p = parseTimeframe(s); if (!p) return s;
+  const w = { s: 'second', m: 'minute', h: 'hour', d: 'day', w: 'week', mo: 'month' }[p.unit];
+  return p.n + ' ' + w + (p.n === 1 ? '' : 's');
+}
+function favList() { return store.get('favs', []).slice(); }
+function customList() { return store.get('customTf', []).filter(x => parseTimeframe(x)).slice(); }
+function isFav(label) { const k = tfKey(label); return favList().some(f => tfKey(f) === k); }
+const STAR_ON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="#f7c948" stroke="#f7c948" stroke-width="1.6" stroke-linejoin="round"><path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.4L12 16l-4.9 2.7 1.1-5.4-4-3.7 5.4-.6z"/></svg>';
+const STAR_OFF = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.4L12 16l-4.9 2.7 1.1-5.4-4-3.7 5.4-.6z"/></svg>';
+function toggleFav(label, on) {
+  const spec = parseTimeframe(label); if (!spec) return;
+  let favs = favList();
+  const has = favs.some(f => tfKey(f) === tfKey(spec.label));
+  const want = on == null ? !has : !!on;
+  if (want === has) { if (TfMenu.isOpen()) TfMenu.render(); return; }
+  if (want) favs.push(spec.label); else favs = favs.filter(f => tfKey(f) !== tfKey(spec.label));
+  favs.sort((a, b) => tfOrder(a) - tfOrder(b));
+  store.set('favs', favs);
+  UI.renderControls();
+  if (TfMenu.isOpen()) TfMenu.render();
+}
+const TfMenu = {
+  isOpen() { return $('tfMenu').classList.contains('open'); },
+  open() { this.render(); $('tfMenu').classList.add('open'); $('tfMenuBtn').classList.add('on'); $('tfMenuBtn').setAttribute('aria-expanded', 'true'); $('tfScrim').classList.add('on'); this.place(); },
+  close() { $('tfMenu').classList.remove('open'); $('tfMenuBtn').classList.remove('on'); $('tfMenuBtn').setAttribute('aria-expanded', 'false'); $('tfScrim').classList.remove('on'); },
+  toggle() { this.isOpen() ? this.close() : this.open(); },
+  place() {
+    const menu = $('tfMenu'), btn = $('tfMenuBtn'); if (!menu || !btn) return;
+    if (window.innerWidth < 760) { menu.style.left = menu.style.top = menu.style.right = menu.style.width = ''; return; }
+    const r = btn.getBoundingClientRect(), w = 280;
+    menu.style.top = (r.bottom + 4) + 'px';
+    let left = r.right - w;
+    if (left < 8) left = 8;
+    if (left + w > innerWidth - 8) left = innerWidth - w - 8;
+    menu.style.left = left + 'px'; menu.style.right = 'auto'; menu.style.width = w + 'px';
+  },
+  groups() {
+    const by = { s: [], m: [], h: [], d: [], w: [], mo: [] };
+    const seen = new Set();
+    for (const [, list] of TF_MENU) for (const x of list) { const p = parseTimeframe(x); if (p && !seen.has(tfKey(x))) { by[p.unit].push(p.label); seen.add(tfKey(x)); } }
+    for (const c of customList()) { const p = parseTimeframe(c); if (p && !seen.has(tfKey(c))) { by[p.unit].push(p.label); seen.add(tfKey(c)); } }
+    const sortU = a => a.sort((x, y) => tfOrder(x) - tfOrder(y));
+    return [['Seconds', sortU(by.s)], ['Minutes', sortU(by.m)], ['Hours', sortU(by.h)], ['Days', sortU([...by.d, ...by.w, ...by.mo])]];
+  },
+  render() {
+    const cur = App.active ? tfKey(App.active.state.tf) : '';
+    const folded = new Set(store.get('tfFold', []));
+    const builtin = new Set(TF_MENU.flatMap(x => x[1].map(tfKey)));
+    const customs = new Set(customList().map(tfKey));
+    const starBtn = (label, on) => `<button type="button" class="tfm-star${on ? ' on' : ''}" data-star="${esc(label)}" title="${on ? 'Remove from favourites' : 'Pin to the top bar'}" aria-label="Star ${esc(tfLong(label))}">${on ? STAR_ON : STAR_OFF}</button>`;
+    let html = `<div class="tfm-add"><div class="tfm-add-t">Add custom interval…</div>
+      <div class="tfm-add-row"><input id="tfCustomN" type="number" min="1" max="100000" inputmode="numeric" placeholder="n" aria-label="Interval length">
+      <select id="tfCustomU" aria-label="Interval unit"><option value="s">seconds</option><option value="m" selected>minutes</option><option value="h">hours</option><option value="d">days</option><option value="w">weeks</option><option value="mo">months</option></select>
+      <button type="button" id="tfCustomAdd">Add</button></div></div>`;
+    for (const [name, items] of this.groups()) {
+      const fold = folded.has(name);
+      html += `<button type="button" class="tfm-sec-h${fold ? ' fold' : ''}" data-tf-fold="${name}">${name}<span class="tfm-chev">${fold ? '▸' : '▾'}</span></button>`;
+      if (fold) continue;
+      for (const lab of items) {
+        const k = tfKey(lab), on = isFav(lab), isCus = customs.has(k) && !builtin.has(k);
+        html += `<div class="tfm-row${k === cur ? ' cur' : ''}" data-tf="${esc(lab)}">${starBtn(lab, on)}<span class="tfm-name">${esc(tfLong(lab))}</span>${isCus ? `<button type="button" class="tfm-x" data-rm-custom="${esc(lab)}" title="Remove">×</button>` : ''}</div>`;
+      }
+    }
+    $('tfMenu').innerHTML = html;
+    const add = () => this.addCustom();
+    $('tfCustomAdd').onclick = add;
+    $('tfCustomN').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); add(); } e.stopPropagation(); });
+    $('tfCustomU').addEventListener('keydown', e => e.stopPropagation());
+  },
+  addCustom() {
+    const n = $('tfCustomN').value, u = $('tfCustomU').value;
+    const spec = parseTimeframe(String(n) + (u === 'mo' ? 'M' : u === 'd' ? 'D' : u === 'w' ? 'W' : u));
+    if (!spec) { toast('Enter a valid interval'); return; }
+    const k = tfKey(spec.label), builtin = TF_MENU.some(([, l]) => l.some(x => tfKey(x) === k));
+    if (!builtin && !customList().some(x => tfKey(x) === k)) store.set('customTf', customList().concat(spec.label));
+    toggleFav(spec.label, true);
+    App.active.setTf(spec.label);
+    if ($('tfCustomN')) $('tfCustomN').value = '';
+  },
+  removeCustom(label) {
+    store.set('customTf', customList().filter(x => tfKey(x) !== tfKey(label)));
+    if (isFav(label)) toggleFav(label, false);
+    else { UI.renderControls(); if (this.isOpen()) this.render(); }
+  },
+  toggleFold(name) {
+    const folded = store.get('tfFold', []).slice();
+    const i = folded.indexOf(name);
+    if (i >= 0) folded.splice(i, 1); else folded.push(name);
+    store.set('tfFold', folded);
+    this.render();
+  }
+};
+const TfQuick = {
+  isOpen() { return $('tfQuick').classList.contains('open'); },
+  open(seed) {
+    TfMenu.close();
+    $('tfQuick').classList.add('open');
+    const inp = $('tf'), cur = ((App.active && parseTimeframe(App.active.state.tf)) || {}).label || '';
+    if (seed == null) { inp.value = cur; inp.focus(); inp.select(); }
+    else { inp.value = seed; inp.focus(); const n = seed.length; try { inp.setSelectionRange(n, n); } catch (e) {} }
+  },
+  close() { $('tfQuick').classList.remove('open'); if (document.activeElement === $('tf')) $('tf').blur(); },
+  apply() {
+    const spec = parseTfInput($('tf').value);
+    if (!spec) { toast('Not a valid interval'); return; }
+    App.active.setTf(spec.label);
+    this.close();
+  }
+};
+
+const FavStrip = {
+  init() {
+    const sc = $('favs'); if (!sc || sc._favInit) return; sc._favInit = true;
+    sc.addEventListener('scroll', () => this.sync(), { passive: true });
+    sc.addEventListener('wheel', e => {
+      if (sc.scrollWidth <= sc.clientWidth + 1) return;
+      const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (!dx) return;
+      e.preventDefault(); sc.scrollLeft += dx;
+    }, { passive: false });
+    $('favPrev').onclick = () => sc.scrollBy({ left: -160, behavior: 'smooth' });
+    $('favNext').onclick = () => sc.scrollBy({ left: 160, behavior: 'smooth' });
+    window.addEventListener('resize', () => this.sync());
+  },
+  sync() {
+    const wrap = $('favWrap'), sc = $('favs'); if (!wrap || !sc) return;
+    const max = sc.scrollWidth - sc.clientWidth;
+    wrap.classList.toggle('can-left', sc.scrollLeft > 4);
+    wrap.classList.toggle('can-right', max - sc.scrollLeft > 4);
+    wrap.classList.toggle('overflow', max > 4);
+  },
+  revealActive() {
+    const sc = $('favs'), act = sc && sc.querySelector('button.active');
+    if (act) { const r = act.getBoundingClientRect(), b = sc.getBoundingClientRect();
+      if (r.left < b.left + 8) sc.scrollLeft += r.left - b.left - 16;
+      else if (r.right > b.right - 8) sc.scrollLeft += r.right - b.right + 16; }
+    this.sync();
+  }
+};
 const UI = {
   renderControls() {
-    const cell = App.active; if (!cell) return; const st = cell.state, ad = st.ad, tfKey = s => { const p = parseTimeframe(s); return p ? p.label.toLowerCase() : ''; }, cur = tfKey(st.tf);
-    const favs = store.get('favs', []);
+    const cell = App.active; if (!cell) return; const st = cell.state, ad = st.ad, cur = tfKey(st.tf);
+    const favs = favList();
     $('market').innerHTML = sourceOptions(ad.id);
     $('presets').innerHTML = ''; $('pairs').innerHTML = ''; // no preset timeframes or coin shortcuts – Jack adds his own (★ / watchlist)
-    $('favs').innerHTML = favs.map(f => `<span class="fav"><button data-tf="${f}" class="${tfKey(f) === cur ? 'active' : ''}">${f}</button><button class="x" data-del="${f}" title="Remove">×</button></span>`).join(' ');
-    $('favAdd').classList.toggle('on', favs.some(f => tfKey(f) === cur));
+    $('favs').innerHTML = favs.map(f => `<span class="fav"><button type="button" data-tf="${esc(f)}" class="${tfKey(f) === cur ? 'active' : ''}">${esc(tfShort(f))}</button></span>`).join('');
+    requestAnimationFrame(() => FavStrip.revealActive());
     $('symIcon').setAttribute('style', coinStyle(ad, st.symbol)); $('symIcon').innerHTML = coinGlyph(ad, st.symbol);
     $('symbol').size = Math.max(6, Math.min(16, String(st.symbol).length + 1));
     document.querySelectorAll('#rail [data-on]').forEach(b => b.classList.toggle('on', document.body.classList.contains(b.dataset.on)));
     if (document.body.classList.contains('watch-open')) { document.querySelectorAll('.wl-row').forEach(r => { const it = Watch.items[+r.dataset.wl]; r.classList.toggle('cur', !!it && it[0] === ad.id && it[1] === st.symbol); }); SymInfo.render(); }
-    if (!$('tfSel').options.length) $('tfSel').innerHTML = '<option value="">▾</option>' + TF_MENU.map(([g, l]) => `<optgroup label="${g}">${l.map(x => `<option value="${x}">${x}</option>`).join('')}</optgroup>`).join('');
-    $('tfSel').value = '';
     const sp = parseTimeframe(st.tf); if (document.activeElement !== $('tf')) $('tf').value = sp ? sp.label : st.tf;
+    if (TfMenu.isOpen()) TfMenu.render();
     $('symbol').value = ad.crypto ? st.symbol : ((ad.labelOf && ad.labelOf(st.symbol)) || st.symbol);
     $('ctype').innerHTML = CHART_TYPES.map(([k, l]) => `<option value="${k}"${k === cell.cfg.type ? ' selected' : ''}>${l}</option>`).join('');
     $('layoutSel').value = String(App.layout); $('syncCross').checked = App.sync; $('syncWrap').style.display = App.layout > 1 ? '' : 'none';
@@ -2642,13 +2977,19 @@ function applyTheme(t) { THEME = t; store.set('theme', t); document.body.classLi
 
 // ---------- events ----------
 document.addEventListener('click', e => {
+  const star = e.target.closest('[data-star]');
+  if (star) { e.preventDefault(); e.stopPropagation(); toggleFav(star.dataset.star); return; }
+  const rm = e.target.closest('[data-rm-custom]');
+  if (rm) { e.preventDefault(); e.stopPropagation(); TfMenu.removeCustom(rm.dataset.rmCustom); return; }
+  const fold = e.target.closest('[data-tf-fold]');
+  if (fold) { e.preventDefault(); e.stopPropagation(); TfMenu.toggleFold(fold.dataset.tfFold); return; }
   const t = e.target.closest('[data-pick],[data-ptab],[data-tf],[data-sym],[data-del],[data-dtool],[data-dact],[data-ind-eye],[data-ind-set],[data-ind-del],[data-add-ind],[data-wl],[data-wl-del],[data-wl-up],[data-al-del],[data-al-rearm]');
   if (!t) return; const ds = t.dataset;
   if (ds.pick != null) Picker.choose(ds.pick, ds.psrc);
   else if (ds.ptab) { Picker.tab = ds.ptab; Picker.sel = 0; Picker.render(); }
-  else if (ds.tf) App.active.setTf(ds.tf);
+  else if (ds.tf) { App.active.setTf(ds.tf); TfMenu.close(); }
   else if (ds.sym) App.active.setSymbol(ds.sym);
-  else if (ds.del) { store.set('favs', store.get('favs', ['7m','13m','45m','3h','5h','2D']).filter(f => f !== ds.del)); UI.renderControls(); }
+  else if (ds.del) { /* leftover hook; favourites are toggled with the star in the interval menu */ }
   else if (ds.dtool != null) { Draw.setTool(ds.dtool || null); if (window.innerWidth < 760 && ds.dtool) document.body.classList.remove('draw-open'); }
   else if (ds.dact) { const a = ds.dact;
     if (a === 'magnet') { Draw.magnet = !Draw.magnet; store.set('magnet', Draw.magnet); }
@@ -2684,10 +3025,10 @@ function wireUI() {
       if (e.shiftKey && q) Picker.choose(q); else if (pick) Picker.choose(pick.s, pick.src); else if (q) Picker.choose(q); }
     else if (e.key === 'Escape') Picker.close();
   });
-  $('favAdd').onclick = () => { const spec = parseTimeframe($('tf').value); if (!spec) return; let favs = store.get('favs', []);
-    const has = favs.some(f => (parseTimeframe(f) || {}).label === spec.label);
-    if (has) favs = favs.filter(f => (parseTimeframe(f) || {}).label !== spec.label); else favs.push(spec.label);
-    favs.sort((a, b) => tfOrder(a) - tfOrder(b)); store.set('favs', favs); UI.renderControls(); toast(has ? `Removed ${spec.label} from the top bar` : `Starred ${spec.label} – it stays on the top bar`); };
+  FavStrip.init();
+  $('tfMenuBtn').onclick = e => { e.stopPropagation(); TfMenu.toggle(); };
+  $('tfScrim').onclick = () => TfMenu.close();
+  window.addEventListener('resize', () => { if (TfMenu.isOpen()) TfMenu.place(); });
   $('railWatch').onclick = () => toggleWatch(!document.body.classList.contains('watch-open'));
   $('railAlerts').onclick = () => UI.openAlerts();
   $('railInd').onclick = () => UI.openInd();
@@ -2697,9 +3038,8 @@ function wireUI() {
   $('compareBtn').onclick = () => { if (App.layout === 1) App.setLayout(2); const c = App.cells[App.cells.length > 1 ? 1 : 0]; App.setActive(c, true); Picker.open(''); };
   $('symIcon').onclick = () => Picker.open('');
   Bottom.init();
-  $('tf').addEventListener('keydown', e => { if (e.key === 'Enter') { App.active.setTf($('tf').value); $('tf').blur(); } });
+  $('tf').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); TfQuick.apply(); } else if (e.key === 'Escape') { e.preventDefault(); TfQuick.close(); } e.stopPropagation(); });
   $('market').addEventListener('change', () => App.active.setSource($('market').value));
-  $('tfSel').addEventListener('change', () => { const v = $('tfSel').value; if (v) App.active.setTf(v); });
   $('ctype').addEventListener('change', () => App.active.setType($('ctype').value));
   $('layoutSel').addEventListener('change', () => App.setLayout($('layoutSel').value));
   $('syncCross').addEventListener('change', () => { App.sync = $('syncCross').checked; store.set('syncCross', App.sync); });
@@ -2734,6 +3074,8 @@ function wireUI() {
   document.addEventListener('keydown', e => {
     const ae = document.activeElement, inField = ae && /INPUT|SELECT|TEXTAREA/.test(ae.tagName);
     if (e.key === 'Escape') {
+      if (TfQuick.isOpen()) { TfQuick.close(); return; }
+      if (TfMenu.isOpen()) { TfMenu.close(); return; }
       if (Picker.isOpen()) { Picker.close(); return; }
       if (document.querySelector('.dlg.open')) { closeAllDlg(); return; }
       if ($('settings').classList.contains('open')) { $('settings').classList.remove('open'); return; }
@@ -2755,10 +3097,13 @@ function wireUI() {
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === '/') { e.preventDefault(); UI.openInd(); return; }
-    // Like TradingView: start typing a number anywhere to jump into the timeframe box, a letter to search symbols
-    if (/^[0-9]$/.test(e.key)) { $('tf').value = ''; $('tf').focus(); }
+    // Like TradingView: a digit opens Change interval, a letter opens symbol search
+    if (/^[0-9]$/.test(e.key)) { e.preventDefault(); TfQuick.open(e.key); }
     else if (/^[a-zA-Z]$/.test(e.key)) { e.preventDefault(); Picker.open(e.key.toUpperCase()); }
   });
+  document.addEventListener('pointerdown', e => {
+    if (TfQuick.isOpen() && !e.target.closest('#tfQuick')) TfQuick.close();
+  }, true);
   // Refresh after the phone/tab comes back from background (sockets are often killed while hidden)
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') App.cells.forEach(c => { if (c.state.agg.length && !c.state.liveOk) c.load(); }); });
 }
@@ -2776,7 +3121,7 @@ function wireUI() {
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
   const C = () => App.active;
   window.__chart = { get state() { return C().state; }, get chart() { return C().chart; }, load: () => C().load(), setTf: t => C().setTf(t), setSymbol: s => C().setSymbol(s), setSource: id => C().setSource(id), loadMore: () => C().loadMore() };
-  window.__app = { App, Draw, Alerts, Watch, Quotes, UI, Picker, screenshot, applyTheme, IND, INDICATORS };
+  window.__app = { App, Draw, Alerts, Watch, Quotes, UI, Picker, TfMenu, TfQuick, parseTfInput, screenshot, applyTheme, IND, INDICATORS };
   Object.assign(window.ChartLib, { IND, INDICATORS, newInstance, histColor });
 })();
 

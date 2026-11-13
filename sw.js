@@ -1,6 +1,6 @@
 // Minimal service worker: caches the app shell + chart library so the app opens instantly / installs as a PWA.
 // Market data (Binance/Bybit/OKX/Gate REST + websockets) is never cached: always live from the network.
-const CACHE = 'chart-shell-v8';
+const CACHE = 'chart-shell-v9';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png',
   'https://unpkg.com/lightweight-charts@5.1.0/dist/lightweight-charts.standalone.production.js'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
