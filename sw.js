@@ -1,6 +1,6 @@
 // Minimal service worker: caches the app shell + local chart library so the app opens instantly / installs as a PWA.
-// Market data (Binance/Bybit/OKX/Gate REST + websockets) is never cached: always live from the network.
-const CACHE = 'chart-shell-v11';
+// Market data (Binance/Bybit/OKX/Gate/Bitget REST + websockets) is never cached: always live from the network.
+const CACHE = 'chart-shell-v12';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png',
   './vendor/lightweight-charts.standalone.production.js'];
 
@@ -22,9 +22,12 @@ function isPage(url) {
   return p.endsWith('/') || p.endsWith('.html') || p.endsWith('/chart');
 }
 
+// Live market data must never be cached: Bitget (and every other exchange) always goes to the network.
+const LIVE_HOST = /(?:^|\.)(?:api\.bitget\.com|ws\.bitget\.com|api\.binance\.com|fapi\.binance\.com|stream\.binance\.com|data-stream\.binance\.vision|data-api\.binance\.vision|api1\.binance\.com|fstream\.binance\.com|api\.bybit\.com|api\.bytick\.com|stream\.bybit\.com|stream\.bytick\.com|www\.okx\.com|ws\.okx\.com|api\.gateio\.ws|fxds-data-ws\.dukascopy\.com)$/;
+
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.origin !== location.origin) return; // API + CDN go straight to the network
+  if (e.request.method !== 'GET' || LIVE_HOST.test(url.hostname) || url.origin !== location.origin) return; // API + CDN + websockets go straight to the network
   if (isPage(url)) {
     // network-first for the page (so updates arrive), with a short timeout then cache
     e.respondWith((async () => {
