@@ -516,6 +516,20 @@ function parseTimeframe(str) {
  * ad.intervals: [[name, ms]] fixed-length native intervals; ad.week / ad.month: native names or null;
  * ad.alignOffsetMs: shift of the "day" boundary vs UTC (0 for crypto; broker server offset for MT5);
  * ad.weekAnchorMs: MONDAY_ANCHOR or SUNDAY_ANCHOR.
+ *
+ * Anchoring (UTC, TradingView-style):
+ * - Minutes/hours that divide a UTC day (1m, 2m, 3m, 5m, 10m, 15m, 20m, 30m, 45m, 90m, 1h, 2h, 3h, 4h, 6h, 8h, 12h):
+ *   floor(t / P) * P, so bars sit on UTC midnights and on exact multiples of P (3h at 00,03,06,09,12,15,18,21).
+ * - Minutes/hours that do not divide a day (7m): restart at each UTC midnight (session reset). The leftover
+ *   minutes before midnight are a short last bucket; the next day starts at 00:00.
+ * - Multi-day (2D, 3D, 21D, 40D, 60D, …): floor(t / (n*DAY)) * n*DAY — UTC midnight, counted from
+ *   Unix epoch 1970-01-01 00:00 UTC.
+ * - Weeks (1W, 2W, 5W, 6W, …): Monday 00:00 UTC. Periods of n weeks are counted from Monday 1970-01-05
+ *   (MONDAY_ANCHOR). So every week bar, and every 2W/5W/6W bar, opens on a Monday.
+ * - Months (1M, 2M, 3M, 4M, 6M, 8M, 12M, …): calendar months starting on the 1st, UTC. Multi-month
+ *   groups use a continuous month index floor((year*12+month)/n)*n. When n divides 12, they line up
+ *   with January each year: 2M = Jan/Mar/May…, 3M = Jan/Apr/Jul/Oct, 4M = Jan/May/Sep, 6M = Jan/Jul,
+ *   12M = January. When n does not (8M), the start month walks (Jan 2020, Sep 2020, May 2021, Jan 2022, …).
  */
 function planTimeframe(spec, ad) {
   if (!spec || !ad) return null;
@@ -3172,6 +3186,40 @@ function foldList() {
 function isFav(label) { const k = tfKey(label); return favList().some(f => tfKey(f) === k); }
 const STAR_ON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="#f7c948" stroke="#f7c948" stroke-width="1.6" stroke-linejoin="round"><path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.4L12 16l-4.9 2.7 1.1-5.4-4-3.7 5.4-.6z"/></svg>';
 const STAR_OFF = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.4L12 16l-4.9 2.7 1.1-5.4-4-3.7 5.4-.6z"/></svg>';
+function ensureCustomTf(spec) {
+  const k = tfKey(spec.label);
+  const builtin = TF_MENU.some(([, l]) => l.some(x => tfKey(x) === k));
+  if (!builtin && !customList().some(x => tfKey(x) === k)) store.set('customTf', customList().concat(spec.label));
+}
+/** Merge labels into favourites. Adds custom intervals when needed. Never removes existing favourites. Returns how many were newly added. */
+function mergeFavLabels(labels) {
+  let favs = favList();
+  const seen = new Set(favs.map(tfKey));
+  let added = 0;
+  for (const lab of labels) {
+    const spec = parseTfInput(lab) || parseTimeframe(lab);
+    if (!spec) continue;
+    ensureCustomTf(spec);
+    if (!seen.has(tfKey(spec.label))) { favs.push(spec.label); seen.add(tfKey(spec.label)); added++; }
+  }
+  favs.sort((a, b) => tfOrder(a) - tfOrder(b));
+  store.set('favs', favs);
+  return added;
+}
+/** ?fav=1m,1h,1D,1W,1M — case-sensitive (1m minutes, 1M months). Strips the param so a reload does not re-add. */
+function importFavsFromQuery() {
+  let params;
+  try { params = new URLSearchParams(location.search); } catch { return 0; }
+  if (!params.has('fav')) return 0;
+  const tokens = String(params.get('fav') || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+  const added = mergeFavLabels(tokens);
+  toast('Added ' + added + ' timeframes to favourites');
+  params.delete('fav');
+  const q = params.toString();
+  try { history.replaceState(null, '', location.pathname + (q ? '?' + q : '') + location.hash); } catch {}
+  try { if (typeof UI !== 'undefined' && App.active) UI.renderControls(); } catch {}
+  return added;
+}
 function toggleFav(label, on) {
   const spec = parseTimeframe(label); if (!spec) return;
   let favs = favList();
@@ -3236,8 +3284,7 @@ const TfMenu = {
     const n = $('tfCustomN').value, u = $('tfCustomU').value;
     const spec = parseTimeframe(String(n) + (u === 'mo' ? 'M' : u === 'd' ? 'D' : u === 'w' ? 'W' : u));
     if (!spec) { toast('Enter a valid interval'); return; }
-    const k = tfKey(spec.label), builtin = TF_MENU.some(([, l]) => l.some(x => tfKey(x) === k));
-    if (!builtin && !customList().some(x => tfKey(x) === k)) store.set('customTf', customList().concat(spec.label));
+    ensureCustomTf(spec);
     toggleFav(spec.label, true);
     App.active.setTf(spec.label);
     if ($('tfCustomN')) $('tfCustomN').value = '';
@@ -3597,13 +3644,14 @@ function wireUI() {
     $('railWatch').classList.toggle('on', document.body.classList.contains('watch-open'));
     if (window.innerWidth >= 760) document.body.classList.add('draw-open');
     wireUI(); UI.renderDrawBar();
+    importFavsFromQuery();
     App.setLayout(App.layout);
     Picker.publicAds().forEach(ad => loadSymbols(ad, () => Picker.refresh()));
     Watch.render(); Alerts.sync();
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
     const C = () => App.active;
     window.__chart = { get state() { return C().state; }, get chart() { return C().chart; }, load: () => C().load(), setTf: t => C().setTf(t), setSymbol: s => C().setSymbol(s), setSource: id => C().setSource(id), loadMore: () => C().loadMore() };
-    window.__app = { App, Draw, Alerts, Watch, Quotes, UI, Picker, TfMenu, TfQuick, parseTfInput, parseTimeframe, tfKey, tfShort, tfLong, toggleFav, favList, isFav, screenshot, applyTheme, IND, INDICATORS, showBootError, resetViewSettings };
+    window.__app = { App, Draw, Alerts, Watch, Quotes, UI, Picker, TfMenu, TfQuick, parseTfInput, parseTimeframe, tfKey, tfShort, tfLong, toggleFav, favList, isFav, mergeFavLabels, importFavsFromQuery, customList, screenshot, applyTheme, IND, INDICATORS, showBootError, resetViewSettings };
     Object.assign(window.ChartLib, { IND, INDICATORS, newInstance, histColor });
   } catch (err) {
     try { showBootError(err); } catch (e2) { try { document.body.insertAdjacentHTML('beforeend', '<p style="padding:24px;color:#fff;background:#131722">The chart couldn\'t start. Reload the page.</p>'); } catch {} }
