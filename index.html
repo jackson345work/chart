@@ -2818,6 +2818,13 @@ const Quotes = {
 //  Bottom bar: date ranges (1D … All) + clock; countdown ticker for every chart
 // ============================================================================
 const tfOrder = f => { const p = parseTimeframe(f); return !p ? 1e15 : p.unit === 'mo' ? p.n * 30.44 * DAY : p.ms; };
+// TradingView order for favourites and menu sections (checked against TradingView's own charting library, Nov 2026):
+// grouped by unit (seconds, minutes, hours, days, weeks, months), ascending inside each unit. Star order does not matter.
+// So 90m sits with the minutes before 1h, and 40D/45D/60D stay with the days before 1W. Minutes that are whole hours
+// (120m) sort with the hours, as TradingView shows them as 2h.
+const TF_UNIT_RANK = { s: 1, m: 2, h: 3, d: 4, w: 5, mo: 6 };
+const tfRank = f => { const p = parseTimeframe(f); if (!p) return 99; return p.unit === 'm' && p.n % 60 === 0 ? TF_UNIT_RANK.h : TF_UNIT_RANK[p.unit]; };
+const tfCmp = (a, b) => (tfRank(a) - tfRank(b)) || (tfOrder(a) - tfOrder(b));
 const RANGES = [['1D', DAY], ['5D', 5 * DAY], ['1M', '1M'], ['3M', '3M'], ['6M', '6M'], ['YTD', 'YTD'], ['1Y', '12M'], ['5Y', '60M'], ['All', 'ALL']];
 const Bottom = {
   init() {
@@ -3202,7 +3209,7 @@ function mergeFavLabels(labels) {
     ensureCustomTf(spec);
     if (!seen.has(tfKey(spec.label))) { favs.push(spec.label); seen.add(tfKey(spec.label)); added++; }
   }
-  favs.sort((a, b) => tfOrder(a) - tfOrder(b));
+  favs.sort(tfCmp);
   store.set('favs', favs);
   return added;
 }
@@ -3227,7 +3234,7 @@ function toggleFav(label, on) {
   const want = on == null ? !has : !!on;
   if (want === has) { if (TfMenu.isOpen()) TfMenu.render(); return; }
   if (want) favs.push(spec.label); else favs = favs.filter(f => tfKey(f) !== tfKey(spec.label));
-  favs.sort((a, b) => tfOrder(a) - tfOrder(b));
+  favs.sort(tfCmp);
   store.set('favs', favs);
   UI.renderControls();
   if (TfMenu.isOpen()) TfMenu.render();
@@ -3251,9 +3258,10 @@ const TfMenu = {
     const by = { s: [], m: [], h: [], d: [], w: [], mo: [] };
     const seen = new Set();
     for (const [, list] of TF_MENU) for (const x of list) { const p = parseTimeframe(x); if (p && !seen.has(tfKey(x))) { by[p.unit].push(p.label); seen.add(tfKey(x)); } }
-    for (const c of customList()) { const p = parseTimeframe(c); if (p && !seen.has(tfKey(c))) { by[p.unit].push(p.label); seen.add(tfKey(c)); } }
-    const sortU = a => a.sort((x, y) => tfOrder(x) - tfOrder(y));
-    return [['Seconds', sortU(by.s)], ['Minutes', sortU(by.m)], ['Hours', sortU(by.h)], ['Days', sortU(by.d)], ['Weeks', sortU(by.w)], ['Months', sortU(by.mo)]];
+    for (const c of customList()) { const p = parseTimeframe(c); if (p && !seen.has(tfKey(c))) { by[p.unit === 'm' && p.n % 60 === 0 ? 'h' : p.unit].push(p.label); seen.add(tfKey(c)); } }
+    const sortU = a => a.sort(tfCmp);
+    // TradingView's menu has one Days section holding days, then weeks, then months (1 day, 1 week, 1 month, 3 months…).
+    return [['Seconds', sortU(by.s)], ['Minutes', sortU(by.m)], ['Hours', sortU(by.h)], ['Days', sortU(by.d.concat(by.w, by.mo))]];
   },
   render() {
     const cur = App.active ? tfKey(App.active.state.tf) : '';
@@ -3352,7 +3360,7 @@ const FavStrip = {
 const UI = {
   renderControls() {
     const cell = App.active; if (!cell) return; const st = cell.state, ad = st.ad, cur = tfKey(st.tf);
-    const favs = favList();
+    const favs = favList().sort(tfCmp); // TradingView sorts the bar itself, whatever order the stars were added in
     $('market').innerHTML = sourceOptions(ad.id);
     $('presets').innerHTML = ''; $('pairs').innerHTML = ''; // no preset timeframes or coin shortcuts – Jack adds his own (★ / watchlist)
     $('favs').innerHTML = favs.map(f => `<span class="fav"><button type="button" data-tf="${esc(f)}" class="${tfKey(f) === cur ? 'active' : ''}">${esc(tfShort(f))}</button></span>`).join('');
