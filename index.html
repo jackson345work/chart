@@ -266,12 +266,6 @@ if (!window.LightweightCharts) {
   .legend .label { display:none; }
   .lg-main { display:flex; flex-wrap:wrap; align-items:baseline; gap:0 2px; }
   .lg-main .dot { width:8px; height:8px; border-radius:50%; background:var(--up); display:inline-block; margin:0 8px 0 2px; align-self:center; }
-  .qbox-slot { margin:6px 0 6px; min-height:0; }
-  .qbox { display:none; gap:0; pointer-events:none; } .qbox.on { display:inline-flex; align-items:stretch; }
-  .qbox .q { border:1px solid; border-radius:4px; padding:3px 9px; min-width:96px; line-height:15px; }
-  .qbox .q b { display:block; font-size:14px; font-weight:600; font-variant-numeric:tabular-nums; } .qbox .q small { font-size:10px; letter-spacing:.06em; }
-  .qbox .sell { border-color:var(--down); color:var(--down); } .qbox .buy { border-color:#2962ff; color:#2962ff; text-align:right; }
-  .qbox .spr { align-self:center; color:var(--muted); font-size:11px; padding:0 8px; min-width:40px; text-align:center; }
   .ind-row { line-height:20px; } .ind-t { color:var(--text); margin-right:4px; }
   .ind-btns button { border:0; background:transparent; color:var(--muted); }
   .cd-label { position:absolute; right:0; z-index:6; pointer-events:none; font-size:11px; line-height:14px; text-align:center; color:#fff; border-radius:0 0 2px 2px; font-variant-numeric:tabular-nums; display:none; }
@@ -321,7 +315,6 @@ if (!window.LightweightCharts) {
     .sym-pill #symbol { max-width:110px; font-size:15px; }
     #market { max-width:92px; font-size:12px; } #layoutSel { max-width:74px; font-size:12px; } #status { display:none; }
     .wl-row { grid-template-columns:1fr auto 64px auto; }
-    .qbox .q { min-width:78px; padding:2px 6px; } .qbox .q b { font-size:12px; }
     .legend .sym { font-size:13px; }
     #drawBar { border-right-width:1px; }
   }
@@ -427,6 +420,7 @@ if (!window.LightweightCharts) {
   <label class="cs-row">Borders <input id="csBorders" type="checkbox"></label>
   <label class="cs-row">Grid <input id="csGrid" type="checkbox"></label>
   <label class="cs-row">Symbol watermark <input id="csWm" type="checkbox"></label>
+  <label class="cs-row">Show data details in legend <input id="csLegendDetails" type="checkbox"></label>
   <label class="cs-row">Price scale
     <select id="csScale"><option value="normal">Regular</option><option value="log">Logarithmic</option><option value="percent">Percent</option></select>
   </label>
@@ -1741,7 +1735,7 @@ function setTimeZone(v) {
   applyTimeZone();
   if (typeof App !== 'undefined' && App.cells) App.cells.forEach(c => { try { c.renderAll({}); if (c.refreshCompares) c.refreshCompares(); } catch {} });
 }
-const CHART_PREF_DEF = { up: '#089981', down: '#f23645', wicks: true, borders: false, grid: true, watermark: false, scale: 'normal', invert: false, auto: true };
+const CHART_PREF_DEF = { up: '#089981', down: '#f23645', wicks: true, borders: false, grid: true, watermark: false, scale: 'normal', invert: false, auto: true, legendDetails: false };
 function chartPrefs() { return Object.assign({}, CHART_PREF_DEF, store.get('chartPrefs', {}) || {}); }
 function setChartPrefs(partial) {
   store.set('chartPrefs', Object.assign(chartPrefs(), partial));
@@ -1851,8 +1845,6 @@ class Cell {
     this.disp = []; this.indRt = []; this.hovering = false; this.cross = null; this.raf = 0;
     this.el = document.createElement('div'); this.el.className = 'cell';
     this.el.innerHTML = `<div class="chart"></div><div class="legend main-legend"></div><div class="pane-legends"></div><div class="cell-msg"></div><div class="cd-label"></div>`;
-    this.qboxEl = document.createElement('div'); this.qboxEl.className = 'qbox';
-    this.qboxEl.innerHTML = '<div class="q sell"><b>—</b><small>SELL</small></div><div class="spr">—</div><div class="q buy"><b>—</b><small>BUY</small></div>';
     this.cdEl = this.el.querySelector('.cd-label'); this.quote = null;
     this.chartEl = this.el.querySelector('.chart'); this.legendEl = this.el.querySelector('.main-legend');
     this.paneLegendsEl = this.el.querySelector('.pane-legends'); this.msgEl = this.el.querySelector('.cell-msg');
@@ -2035,7 +2027,7 @@ class Cell {
       `<span class="label">${this.fmtTime(b.t)}</span>` +
       `<span class="k">O</span><span class="${cls}">${fmtNum(b.o)}</span><span class="k">H</span><span class="${cls}">${fmtNum(b.h)}</span>` +
       `<span class="k">L</span><span class="${cls}">${fmtNum(b.l)}</span><span class="k">C</span><span class="${cls}">${fmtNum(b.c)}</span>` +
-      ` <span class="${chg >= 0 ? 'up' : 'down'}">&nbsp;${chg >= 0 ? '+' : ''}${fmtNum(chg)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)</span></div><div class="qbox-slot"></div>`;
+      ` <span class="${chg >= 0 ? 'up' : 'down'}">&nbsp;${chg >= 0 ? '+' : ''}${fmtNum(chg)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)</span></div>`;
     const row = rt => {
       const r = rt.res || {}, sh = rt.def.shift ? rt.def.shift(rt.inst.params) : {};
       const vals = rt.def.plots.filter(pl => !(pl.k === 'ma' && rt.def.id === 'vol' && !rt.inst.params.ma)).map(pl => {
@@ -2053,10 +2045,13 @@ class Cell {
       const pcts = cb && base && base.c ? ` (${((cb.c / base.c - 1) * 100).toFixed(2)}%)` : '';
       html += `<div class="ind-row cmp-row"><span style="color:${c.color}">${esc(name)}</span> <span style="color:${c.color}">${cb ? fmtNum(cb.c) : '—'}${pcts}</span><span class="ind-btns"><button data-cmp-del="${esc(c.src + ':' + c.sym)}" title="Remove compare">✕</button></span></div>`;
     }
-    const how = this.cfg.type === 'ha' ? 'Heikin Ashi · ' : '';
-    const src = st.plan.fromTrades ? 'built from live trades/ticks · ' : st.plan.native ? '' : `built from ${st.plan.src} candles (×${st.plan.ratio}) · `;
-    html += `<div class="hint">${how}${src}${agg.length} bars · times in ${TZ_LABEL}</div>`;
-    this.legendEl.innerHTML = html; const slot = this.legendEl.querySelector('.qbox-slot'); if (slot) slot.appendChild(this.qboxEl);
+    if (chartPrefs().legendDetails) {
+      const how = this.cfg.type === 'ha' ? 'Heikin Ashi' : '';
+      const src = st.plan.fromTrades ? 'built from live trades/ticks' : st.plan.native ? '' : `built from ${st.plan.src} candles (×${st.plan.ratio})`;
+      const bits = [how, src, agg.length + ' bars'].filter(Boolean);
+      if (bits.length) html += `<div class="hint">${bits.join(' · ')}</div>`;
+    }
+    this.legendEl.innerHTML = html;
     for (const rt of this.indRt) if (rt.legendEl) rt.legendEl.innerHTML = `<div class="ind-row" data-cell="${this.idx}">${row(rt)}</div>`;
     this.positionPaneLegends();
     this.updateWatermark();
@@ -2135,13 +2130,10 @@ class Cell {
     });
   }
 
-  // ---------- best bid / ask (SELL / BUY boxes, like TradingView) ----------
+  // ---------- best bid / ask (details card only; no ticket boxes or chart lines) ----------
   onQuote(bid, ask, T) { this.quote = { bid, ask, T };
-    if (this.qRaf) return; this.qRaf = requestAnimationFrame(() => { this.qRaf = 0; this.paintQuote(); }); }
-  paintQuote() { const q = this.quote, el = this.qboxEl; if (!q) { el.classList.remove('on'); return; }
-    el.classList.add('on'); const [s, sp, b] = el.children; s.firstChild.textContent = fmtNum(q.bid); b.firstChild.textContent = fmtNum(q.ask);
-    const d = q.ask - q.bid, dec = Math.max(String(fmtNum(q.bid)).split('.')[1]?.length || 0, String(fmtNum(q.ask)).split('.')[1]?.length || 0);
-    sp.textContent = d >= 0 ? d.toFixed(Math.min(dec, 8)) : '—'; }
+    if (this.qRaf) return; this.qRaf = requestAnimationFrame(() => { this.qRaf = 0;
+      try { if (typeof SymInfo !== 'undefined' && SymInfo.key === this.key) SymInfo.paint(); } catch {} }); }
   // ---------- countdown to candle close (under the last-price label) ----------
   nextClose(now) { const st = this.state, plan = st.plan; if (!plan || plan.fromTrades && plan.spec.unit === 's' && plan.spec.n === 1) return null;
     const start = plan.bucket(now); if (this._cd && this._cd.start === start) return this._cd.end;
@@ -2165,7 +2157,7 @@ class Cell {
   // ---------- load ----------
   async load() {
     const st = this.state, gen = ++st.gen;
-    this.stopLive(); this.quote = null; this._cd = null; this.paintQuote();
+    this.stopLive(); this.quote = null; this._cd = null;
     const ad = st.ad;
     App.onCellChanged(this);
     try { if (ad.prepare) await ad.prepare(); }
@@ -2263,6 +2255,7 @@ class Cell {
     const p = chartPrefs(), th = TH();
     try { this.chart.applyOptions({ grid: { vertLines: { color: p.grid ? th.grid : 'rgba(0,0,0,0)', visible: !!p.grid }, horzLines: { color: p.grid ? th.grid : 'rgba(0,0,0,0)', visible: !!p.grid } } }); } catch {}
     this.applyCandleStyle(); this.applyScale(); this.updateWatermark();
+    if (this.disp && this.disp.length) this.updateLegend(null);
   }
   applyCandleStyle() {
     if (!this.main) return;
@@ -2420,7 +2413,7 @@ const Draw = {
   drag: null,          // {cell, d, mode, idx, L0, p0, orig, before}
   mem: {},             // key -> drawings[]
   undo: [], redo: [],
-  list(key) { if (!this.mem[key]) this.mem[key] = store.get('dw_' + key, []); return this.mem[key]; },
+  list(key) { if (!this.mem[key]) this.mem[key] = store.get('dw_' + key, []); return this.mem[key]; }, // load only what the user saved; never seed sample drawings
   save(key) { const l = this.list(key); if (l.length) store.set('dw_' + key, l); else store.del('dw_' + key); App.refreshDrawings(key); },
   snapshot(key) { return JSON.stringify(this.list(key)); },
   commit(key, before) { const after = this.snapshot(key); if (after === before) return; this.undo.push({ key, before, after }); if (this.undo.length > 200) this.undo.shift(); this.redo = []; this.save(key); UI.renderDrawBar(); },
@@ -3631,7 +3624,7 @@ const ChartSettings = {
     const p = chartPrefs();
     $('csUp').value = p.up; $('csDown').value = p.down;
     $('csWicks').checked = p.wicks !== false; $('csBorders').checked = !!p.borders;
-    $('csGrid').checked = p.grid !== false; $('csWm').checked = !!p.watermark;
+    $('csGrid').checked = p.grid !== false; $('csWm').checked = !!p.watermark; $('csLegendDetails').checked = !!p.legendDetails;
     $('csScale').value = p.scale || 'normal'; $('csInvert').checked = !!p.invert; $('csAuto').checked = p.auto !== false;
     const cur = store.get('chartTz', 'device');
     $('csTz').innerHTML = TZ_OPTIONS.map(([v, l]) => `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${l}</option>`).join('');
@@ -3641,7 +3634,7 @@ const ChartSettings = {
     setChartPrefs({
       up: $('csUp').value, down: $('csDown').value,
       wicks: $('csWicks').checked, borders: $('csBorders').checked,
-      grid: $('csGrid').checked, watermark: $('csWm').checked,
+      grid: $('csGrid').checked, watermark: $('csWm').checked, legendDetails: $('csLegendDetails').checked,
       scale: $('csScale').value, invert: $('csInvert').checked, auto: $('csAuto').checked,
     });
     if (String(tz) !== String(store.get('chartTz', 'device'))) setTimeZone(tz === 'device' ? 'device' : +tz);
