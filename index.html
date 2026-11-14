@@ -621,19 +621,44 @@ function macdCalc(closes, f, s, g) {
 //   listSymbols()                               -> Promise<string[]>
 //   prepare()  (optional)                       -> Promise, called before planning (MT5 fetches server offset)
 // ============================================================================
-async function fetchJSONFrom(bases, path, state) {
-  let lastErr;
-  for (let i = 0; i < bases.length; i++) {
-    const idx = (state.i + i) % bases.length;
-    try {
-      const r = await fetch(bases[idx] + path);
-      if (r.status === 400) { const b = await r.text(); throw Object.assign(new Error(b), { fatal: true }); }
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      state.i = idx; state.base = bases[idx];
-      return await r.json();
-    } catch (e) { lastErr = e; if (e.fatal) throw e; }
-  }
-  throw lastErr || new Error('network error');
+// Every network call has a deadline: a host that never answers (ISP block, black-holed IP, captive Wi-Fi) must
+// fail fast so the chart falls back to the next mirror or the cache instead of "Loading…" forever.
+function fetchT(url, opts, ms = 10000) {
+  const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { ...(opts || {}), signal: ctrl.signal }).then(r => {
+    // keep the timer running until the body has been read, so a stalled body also times out
+    const wrap = k => () => r[k]().finally(() => clearTimeout(t));
+    return { ok: r.ok, status: r.status, headers: r.headers, json: wrap('json'), text: wrap('text') };
+  }, e => { clearTimeout(t); throw e.name === 'AbortError' ? new Error('timeout') : e; });
+}
+const BASE_PREF_KEY = b => 'cc_base_' + b[0].replace(/^https?:\/\//, '');
+function fetchJSONFrom(bases, path, state) {
+  if (!state.loaded) { state.loaded = true; try { const v = +localStorage.getItem(BASE_PREF_KEY(bases)); if (v > 0 && v < bases.length) state.i = v; } catch {} }
+  const order = bases.map((_, i) => (state.i + i) % bases.length);
+  // hedged: if a mirror has not answered in 2.5 s the next one starts too; the first good answer wins
+  return new Promise((resolve, reject) => {
+    let next = 0, pending = 0, done = false, lastErr = null;
+    const launch = () => {
+      if (done || next >= order.length) return;
+      const idx = order[next++], last = next >= order.length; pending++;
+      const hedge = last ? 0 : setTimeout(launch, 2500);
+      (async () => {
+        const r = await fetchT(bases[idx] + path, null, last ? 12000 : 6000);
+        if (r.status === 400) { const t = await r.text(); throw Object.assign(new Error(t), { fatal: true }); }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })().then(j => {
+        clearTimeout(hedge); pending--; if (done) return; done = true;
+        if (state.i !== idx) { try { localStorage.setItem(BASE_PREF_KEY(bases), String(idx)); } catch {} } // remember the mirror that works here
+        state.i = idx; state.base = bases[idx]; resolve(j);
+      }, e => {
+        clearTimeout(hedge); pending--; lastErr = e; if (done) return;
+        if (e.fatal) { done = true; reject(e); return; }
+        if (next < order.length) launch(); else if (!pending) { done = true; reject(lastErr || new Error('network error')); }
+      });
+    };
+    launch();
+  });
 }
 
 /** Generic websocket with fallback URLs, auto-reconnect and keep-alive. */
@@ -645,14 +670,16 @@ function robustSocket(urls, { onOpen, onMessage, onStatus, ping }) {
     let opened = false;
     try { ws = new WebSocket(url); } catch (e) { schedule(false); return; }
     const sock = ws;
-    ws.onopen = () => { opened = true; lastMsg = Date.now(); silent = false; onOpen && onOpen(sock);
+    // a socket that hangs while connecting (blocked host) is dropped after 7 s so the next fallback URL is tried
+    const conTimer = setTimeout(() => { if (!opened && ws === sock) { try { sock.close(); } catch {} } }, 7000);
+    ws.onopen = () => { opened = true; clearTimeout(conTimer); lastMsg = Date.now(); silent = false; onOpen && onOpen(sock);
       if (ping) pingTimer = setInterval(() => { try { sock.send(ping()); } catch {} }, 20000);
       // watchdog: an endpoint that accepts the connection but never sends data counts as failed
       dogTimer = setInterval(() => { if (Date.now() - lastMsg > 30000) { silent = true; try { sock.close(); } catch {} } }, 5000); };
     ws.onmessage = ev => { if (stopped) return; if (!lastMsg || attempt) { attempt = 0; } if (!liveShown) { liveShown = true; onStatus(true, url); } lastMsg = Date.now(); onMessage(ev.data, sock); };
     let liveShown = false;
     ws.onerror = () => {};
-    ws.onclose = () => { clearInterval(pingTimer); clearInterval(dogTimer); if (!stopped) schedule(opened && !silent); };
+    ws.onclose = () => { clearTimeout(conTimer); clearInterval(pingTimer); clearInterval(dogTimer); if (!stopped) schedule(opened && !silent); };
   };
   const schedule = opened => {
     if (!opened) idx++; // try the next fallback URL
@@ -806,7 +833,7 @@ function okxAdapter(swap) {
   const get = async path => { // ≥110 ms apart: OKX allows 20 history requests / 2 s per IP
     for (let attempt = 0; ; attempt++) {
       const now = Date.now(), wait = Math.max(0, nextAt - now); nextAt = Math.max(now, nextAt) + 110; if (wait) await sleepMs(wait);
-      const r = await fetch(REST + path);
+      const r = await fetchT(REST + path);
       if (r.status === 429 && attempt < 4) { await sleepMs(600 * (attempt + 1)); continue; }
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
@@ -876,7 +903,7 @@ function gateAdapter() {
   const quotes = ['USDT', 'USDC', 'BTC', 'ETH', 'TRY', 'EUR'];
   const get = async path => {
     for (let attempt = 0; ; attempt++) {
-      const r = await fetch(REST + path);
+      const r = await fetchT(REST + path);
       if (r.status === 429 && attempt < 4) { await sleepMs(700 * (attempt + 1)); continue; }
       if (!r.ok) { let j = null; try { j = await r.json(); } catch {}
         if (j && j.label) throw Object.assign(new Error(JSON.stringify({ msg: j.message || j.label })), { fatal: r.status === 400, label: j.label });
@@ -966,7 +993,7 @@ function bitgetAdapter(futures) {
   const bar = k => ({ t: +k[0], o: +k[1], h: +k[2], l: +k[3], c: +k[4], v: +k[5] });
   const get = async path => {
     for (let attempt = 0; ; attempt++) {
-      const r = await fetch(REST + path);
+      const r = await fetchT(REST + path);
       if (r.status === 429 && attempt < 4) { await sleepMs(400 * (attempt + 1)); continue; }
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
@@ -1185,7 +1212,12 @@ const DkQ = { conc: 2, n: 0, q: [], spacing: 220, last: 0,
     setTimeout(run, wait);
   }
 };
-function jsonpOnce(url, timeout) {
+// A <script> added before the page's load event delays that event, so a slow or blocked Dukascopy kept the browser's tab
+// spinner going forever (each poll adds a new script). JSONP therefore waits for 'load' (or 8 s at most).
+const pageLoaded = typeof document === 'undefined' || document.readyState === 'complete' ? Promise.resolve()
+  : new Promise(r => { window.addEventListener('load', () => r(), { once: true }); setTimeout(r, 8000); });
+async function jsonpOnce(url, timeout) {
+  await pageLoaded;
   return new Promise((resolve, reject) => {
     const cb = '__jp' + (++jsonpSeq) + '_' + Date.now().toString(36);
     const sc = document.createElement('script');
@@ -1202,7 +1234,7 @@ function jsonpOnce(url, timeout) {
 }
 async function jsonp(url, timeout = 20000, prio = 2) {
   let last;
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 4; i++) {
     try { return await DkQ.enqueue(prio, () => jsonpOnce(url, timeout)); }
     catch (e) { last = e; if (typeof location !== 'undefined' && location.protocol === 'file:') throw e; await sleepMs(Math.min(16000, 700 * 2 ** i) + Math.random() * 250); }
   }
@@ -1225,6 +1257,49 @@ function dkDb() {
   });
   return dkDbP;
 }
+// Generic last-seen candle cache (all non-Dukascopy sources): a returning visit paints the chart from IndexedDB at once,
+// then the network refresh replaces it. Up to 3000 source bars per symbol/interval, 40 charts kept (least recently used dropped).
+let gcDbP = null;
+function gcDb() {
+  if (gcDbP) return gcDbP;
+  gcDbP = typeof indexedDB === 'undefined' ? Promise.resolve(null) : new Promise(res => {
+    try { const r = indexedDB.open('cc_bar_cache', 1);
+      r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains('bars')) r.result.createObjectStore('bars'); };
+      r.onsuccess = () => res(r.result); r.onerror = () => res(null); r.onblocked = () => res(null);
+    } catch { res(null); } });
+  return gcDbP;
+}
+const withDeadline = (p, ms, fallback = null) => Promise.race([p, new Promise(r => setTimeout(() => r(fallback), ms))]);
+async function barCacheGet(key) {
+  return withDeadline((async () => { try { const db = await gcDb(); if (!db) return null;
+    return await new Promise(res => { const q = db.transaction('bars').objectStore('bars').get(key); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); });
+  } catch { return null; } })(), 600);
+}
+function barCachePut(key, bars) {
+  if (!bars || !bars.length) return;
+  const data = bars.slice(-3000).map(b => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+  gcDb().then(db => { if (!db) return; try {
+    let idx = []; try { idx = JSON.parse(localStorage.getItem('cc_barcache_idx') || '[]'); } catch {}
+    idx = idx.filter(k => k !== key); idx.push(key);
+    const tx = db.transaction('bars', 'readwrite'), os = tx.objectStore('bars');
+    while (idx.length > 40) os.delete(idx.shift());
+    os.put(data, key); localStorage.setItem('cc_barcache_idx', JSON.stringify(idx));
+  } catch {} }).catch(() => {});
+}
+// Forex/metals/CFDs stop from Friday ~20:00 UTC to Sunday ~21:00 UTC. A cache whose newest bar is from that Friday close
+// is current, so a weekend visit only refreshes the tail instead of re-downloading every page.
+function dkMarketClosed(now = Date.now()) { const d = new Date(now), dow = d.getUTCDay(), h = d.getUTCHours(); return (dow === 5 && h >= 21) || dow === 6 || (dow === 0 && h < 22); }
+function dkClosedFresh(newest, ivMs, now = Date.now()) {
+  const d = new Date(now), dow = d.getUTCDay();
+  if (!dkMarketClosed(now) || !newest) return false;
+  const fri = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - ((dow + 2) % 7), 19); // that Friday 19:00 UTC
+  return newest >= fri - ivMs * 3;
+}
+// Where each Dukascopy series' history begins (learned from an empty page) and when its newest page was last fetched,
+// so switching timeframes does not re-ask Dukascopy for pages it already said are empty (Dukascopy blocks clients that ask too much).
+const dkMeta = (() => { try { return JSON.parse(localStorage.getItem('cc_dk_meta') || '{}'); } catch { return {}; } })();
+let dkMetaT = 0;
+const dkMetaSave = () => { clearTimeout(dkMetaT); dkMetaT = setTimeout(() => { try { const ks = Object.keys(dkMeta); if (ks.length > 400) ks.slice(0, ks.length - 400).forEach(k => delete dkMeta[k]); localStorage.setItem('cc_dk_meta', JSON.stringify(dkMeta)); } catch {} }, 500); };
 const dkKey = (sym, iv, side) => sym + '\t' + iv + '\t' + side;
 function dkMerge(a, b) {
   if (!a || !a.length) return b || [];
@@ -1280,7 +1355,21 @@ function dukascopyAdapter() {
     // average of its bid and ask candles, which is exactly how they are built here), or 'B' = bid (MT5-style).
     side: () => store.get('dkSide', 'M') === 'B' ? 'B' : 'M',
     endpoint: () => 'freeserv.dukascopy.com · ' + (ad.side() === 'M' ? 'mid (bid+ask)/2' : 'bid'),
+    // Dukascopy's own 1WEEK / 1MONTH series only list finished weeks and months, so the current week and month were missing
+    // (e.g. on 1M the newest candle was October in mid-November). The unfinished bucket is built from 1DAY candles, which
+    // aggregate to exactly Dukascopy's weekly/monthly candles (checked on XAU/USD, EUR/USD, TSLA).
     async getBars(symbol, interval, endTime, n, prio) {
+      const bars = await ad.getBarsRaw(symbol, interval, endTime, n, prio);
+      if ((interval !== '1WEEK' && interval !== '1MONTH') || endTime != null) return bars;
+      const bucket = interval === '1WEEK' ? t => t - ((t - MONDAY_ANCHOR) % WEEK + WEEK) % WEEK : t => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1); };
+      let days; try { days = await ad.getBarsRaw(symbol, '1DAY', null, interval === '1WEEK' ? 14 : 45, prio); } catch { return bars; }
+      const lastT = bars.length ? bars[bars.length - 1].t : 0, tail = [];
+      for (const d of days) { const t = bucket(d.t); if (t <= lastT) continue; const c = tail[tail.length - 1];
+        if (!c || c.t !== t) tail.push({ t, o: d.o, h: d.h, l: d.l, c: d.c, v: d.v });
+        else { if (d.h > c.h) c.h = d.h; if (d.l < c.l) c.l = d.l; c.c = d.c; c.v += d.v; } }
+      return tail.length ? bars.concat(tail) : bars;
+    },
+    async getBarsRaw(symbol, interval, endTime, n, prio) {
       const end = endTime != null ? endTime : Date.now() + 60000, lim = Math.max(1, n || 1), pr = prio == null ? 1 : prio;
       const url = (os, count) => `${BASE}chart/json3&instrument=${encodeURIComponent(symbol)}&offer_side=${os}&interval=${interval}&splits=true&stocks=true&limit=${count}&time_direction=P&timestamp=${end}`;
       const bad = rows => { if (!Array.isArray(rows)) throw Object.assign(new Error(JSON.stringify({ msg: (rows && rows.error) || 'Unknown instrument ' + symbol })), { fatal: /unknown instrument/i.test(String(rows && rows.error)) }); };
@@ -1293,14 +1382,21 @@ function dukascopyAdapter() {
         let cached = (await dkCacheGet(key)) || [];
         const usable = cached.filter(b => b.t <= end);
         const newest = usable.length ? usable[usable.length - 1].t : 0;
-        const have = usable.length >= lim && (endTime != null ? usable[0].t <= end - (lim - 1) * ivMs * 0.5 : (end - newest) < ivMs * 3);
+        const have = usable.length >= lim && (endTime != null ? usable[0].t <= end - (lim - 1) * ivMs * 0.5 : (end - newest) < ivMs * 3 || dkClosedFresh(newest, ivMs));
         // live/tail: if we already have enough and it's fresh, only refresh a short tail; historical pages use the cache when it covers them
         const fetchN = have && endTime == null ? Math.min(lim, 40) : lim;
-        const needNet = !have || endTime == null; // always refresh the tail for a live page so the last candle stays current
+        const meta = dkMeta[key] || {};
+        if (endTime != null && meta.start && end < meta.start) return []; // before the first candle Dukascopy has: known empty
+        // weekend: a tail fetched after Friday's close is already final
+        const closedDone = endTime == null && have && dkMarketClosed() && meta.at && dkClosedFresh(newest, ivMs) && meta.at > newest + ivMs;
+        const needNet = !closedDone && (!have || endTime == null); // otherwise always refresh the tail for a live page so the last candle stays current
         if (needNet) {
           try {
-            const rows = await jsonp(url(side, fetchN), 20000, pr); bad(rows);
-            cached = dkMerge(cached, rowsToBars(rows));
+            const rows = await jsonp(url(side, fetchN), 12000, pr); bad(rows);
+            const got = rowsToBars(rows);
+            if (endTime == null) { dkMeta[key] = { ...meta, at: Date.now() }; dkMetaSave(); }
+            else if (!got.length && cached.length && cached[0].t > end) { dkMeta[key] = { ...meta, start: cached[0].t }; dkMetaSave(); }
+            cached = dkMerge(cached, got);
             dkCachePut(key, cached);
           } catch (e) {
             if (usable.length) return usable; // serve cache if Dukascopy is blocking
@@ -1324,7 +1420,7 @@ function dukascopyAdapter() {
     liveTrades: true,
     subscribe(symbol, interval, h) {
       // Live: poll the newest ticks every second (feeds the current candle) + re-read the newest candles every 10 s.
-      let stopped = false, lastTick = 0, okShown = false, fails = 0;
+      let stopped = false, lastTick = 0, okShown = false, fails = 0, lastTickWall = Date.now();
       const tickLoop = async () => {
         while (!stopped) {
           const t0 = Date.now();
@@ -1334,17 +1430,20 @@ function dukascopyAdapter() {
             if (Array.isArray(rows)) { fails = 0;
               rows.sort((a, b) => a[0] - b[0]);
               const mid = ad.side() === 'M';
-              for (const r of rows) if (r[0] > lastTick) { lastTick = r[0]; h.onTrade(mid && r[2] > 0 ? midOf(r[1], r[2]) : r[1], 0, r[0]); if (h.onQuote) h.onQuote(r[1], r[2], r[0]); } // r = [time, bid, ask, bidVol, askVol]
+              for (const r of rows) if (r[0] > lastTick) { lastTick = r[0]; lastTickWall = Date.now(); h.onTrade(mid && r[2] > 0 ? midOf(r[1], r[2]) : r[1], 0, r[0]); if (h.onQuote) h.onQuote(r[1], r[2], r[0]); } // r = [time, bid, ask, bidVol, askVol]
               if (!okShown) { okShown = true; h.onStatus(true, 'dukascopy'); } }
           } catch (e) { if (++fails >= 3) { okShown = false; h.onStatus(false, e.message + (fails > 3 ? ` (next try in ${Math.round(Math.min(30000, 1000 * 2 ** (fails - 2)) / 1000)} s)` : '')); } }
           // back off when Dukascopy refuses (it blocks clients that poll too hard); poll gently while the tab is hidden
-          const gap = fails >= 3 ? Math.min(30000, 1000 * 2 ** (fails - 2)) : (typeof document !== 'undefined' && document.hidden ? 5000 : 1000);
+          // and poll slowly when nothing trades: weekend close (30 s), or no new tick for a while (stocks outside US hours)
+          const idle = Date.now() - lastTickWall;
+          const gap = fails >= 3 ? Math.min(30000, 1000 * 2 ** (fails - 2)) : dkMarketClosed() ? 30000 : idle > 600000 ? 15000 : idle > 60000 ? 5000
+            : (typeof document !== 'undefined' && document.hidden ? 5000 : 1000);
           await new Promise(r => setTimeout(r, Math.max(250, gap - (Date.now() - t0))));
         }
       };
       const barLoop = async () => {
         while (!stopped && interval !== '@trades') {
-          await new Promise(r => setTimeout(r, fails >= 3 ? 30000 : 10000)); if (stopped) return;
+          await new Promise(r => setTimeout(r, fails >= 3 || dkMarketClosed() ? 30000 : 10000)); if (stopped) return;
           try { const bars = await ad.getBars(symbol, interval, null, 3, 2); if (!stopped) for (const b of bars) h.onBar(b, 0); } catch {}
         }
       };
@@ -1450,7 +1549,7 @@ function cnbcAdapter() {
     let last;
     for (let i = 0; i < 3; i++) {
       try {
-        const r = await fetch(u); if (!r.ok) throw new Error('CNBC HTTP ' + r.status);
+        const r = await fetchT(u, null, 10000); if (!r.ok) throw new Error('CNBC HTTP ' + r.status);
         const j = await r.json(), pb = j && j.barData && j.barData.priceBars;
         if (!Array.isArray(pb)) { if (j && j.status === 'ERROR') return []; throw new Error('CNBC: bad reply'); }
         return pb;
@@ -1492,7 +1591,7 @@ function cnbcAdapter() {
         // walk back in ≤99-day windows; a few empty windows (feed gaps) are skipped before giving up
         let e = end, empty = 0;
         while (out.length < lim && empty < 3) {
-          const span = Math.min(SPAN_MAX, Math.max(4 * HOUR, (lim - out.length) * ivMs * 1.5 + 3 * DAY * (ivMs >= HOUR ? 1 : 0)));
+          const span = Math.min(SPAN_MAX, Math.max(4 * HOUR, (lim - out.length) * ivMs * 1.5 + 3 * DAY * (ivMs >= HOUR || empty ? 1 : 0))); // an empty window (weekend / holiday) widens the next one by 3 days
           const s0 = Math.floor((e - span) / ivMs) * ivMs; // aligned start: CNBC buckets from the requested start
           const bars = (await raw(m.ric, interval, s0, e)).map(conv).filter(b => b.t <= end && (!out.length || b.t < out[0].t));
           if (bars.length) { out = bars.concat(out); empty = 0; } else empty++;
@@ -2315,15 +2414,20 @@ class Cell {
         this.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - w), to: n + (w > 100 ? 8 : 4) }); ranged = true; }
       if (note) this.setStatus(note);
     };
-    if (ad.cachedBars && plan.src !== '@trades') {
-      try { const cached = await ad.cachedBars(st.symbol, plan.src, null, needed); if (cached && cached.length) paint(cached, `Loading ${st.symbol} ${spec.label} (cached)…`); } catch {}
+    // show the last-seen candles at once (IndexedDB), then refresh from the network
+    if (plan.src !== '@trades' && !keep) {
+      try { const cached = ad.cachedBars ? await withDeadline(ad.cachedBars(st.symbol, plan.src, null, needed), 800, null) : await barCacheGet(srcKey);
+        if (cached && cached.length) paint(cached, `Loading ${st.symbol} ${spec.label} (cached)…`); } catch {}
       if (gen !== st.gen) return;
     }
+    // never a silent endless "Loading…": after 8 s say what we are waiting for
+    const slowT = setTimeout(() => { if (gen === st.gen && !st.agg.length) this.setStatus(`Still waiting for ${ad.short}… (slow or blocked connection – retrying)`, true); }, 8000);
     try {
-      const { bars, exhausted } = await fetchHistory(ad, st.symbol, plan.src, null, ad.maxReq || MAX_REQ_INITIAL, needed, b => paint(b));
+      const { bars, exhausted } = await fetchHistory(ad, st.symbol, plan.src, null, ad.maxReq || MAX_REQ_INITIAL, needed, b => paint(b)).finally(() => clearTimeout(slowT));
       if (gen !== st.gen) return;
       if (!bars.length && !plan.fromTrades) throw Object.assign(new Error(JSON.stringify({ msg: 'No data for ' + st.symbol })), { fatal: true });
       st.src = bars; st.noMoreHistory = exhausted;
+      if (!ad.cachedBars && plan.src !== '@trades') barCachePut(srcKey, bars);
       st.agg = aggregate(bars, plan);
       this.renderAll(null);
       if (!ranged) { const n = st.agg.length, w = this.chartEl.clientWidth < 600 ? 70 : 160;
@@ -2856,6 +2960,7 @@ const App = {
   onStatus(cell) { if (cell !== this.active) return; const s = $('status'); s.textContent = cell.state.status; s.className = cell.state.statusErr ? 'err' : ''; s.title = cell.state.status; },
   onCellChanged(cell) { if (cell === this.active) UI.renderControls(); UI.renderEditBar(); },
   onCellLoaded(cell) {
+    if (this._firstLoaded) { this._firstLoaded(); this._firstLoaded = null; }
     if (cell.idx === 0) history.replaceState(null, '', '#' + (cell.ad.id === 'binance_spot' ? '' : cell.ad.id + '/') + encodeURIComponent(cell.state.symbol) + '/' + cell.state.plan.spec.label);
     if (cell === this.active) document.title = `${cell.label()} ${cell.state.plan.spec.label} · Chart`;
   },
@@ -2878,6 +2983,7 @@ const App = {
 //  Live quotes for the watchlist and alerts (one feed per symbol, shared)
 // ============================================================================
 const stats24 = b => b.length ? { h: Math.max(...b.map(x => x.h)), l: Math.min(...b.map(x => x.l)), v: b.reduce((a, x) => a + (x.v || 0), 0) } : null;
+const chartFirstLoaded = new Promise(r => { App._firstLoaded = r; });
 const Quotes = {
   subs: new Map(), sockets: {}, loops: new Map(), timer: 0,
   sub(src, sym, cb) { const key = src + ':' + sym; let s = this.subs.get(key);
@@ -2894,7 +3000,7 @@ const Quotes = {
                        : ['wss://stream.binance.com:443/stream?streams=' + streams, 'wss://data-stream.binance.vision/stream?streams=' + streams];
       const stop = robustSocket(urls, { onStatus: () => {}, onMessage: raw => { try { const m = JSON.parse(raw), d = m.data || m; if (d && d.s) this.emit(id, d.s, +d.c, +d.o, { h: +d.h, l: +d.l, v: +d.v, qv: +d.q }); } catch {} } });
       this.sockets[id] = { sig, stop };
-      syms.forEach(s => fetch(fut ? `https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=${s}` : `https://api.binance.com/api/v3/ticker/24hr?symbol=${s}`).then(r => r.json()).then(d => { if (d && d.lastPrice) this.emit(id, s, +d.lastPrice, +d.openPrice, { h: +d.highPrice, l: +d.lowPrice, v: +d.volume, qv: +d.quoteVolume }); }).catch(() => {}));
+      syms.forEach(s => fetchT(fut ? `https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=${s}` : `https://${adapterById(id).endpoint() || 'data-api.binance.vision'}/api/v3/ticker/24hr?symbol=${s}`, null, 8000).then(r => r.json()).then(d => { if (d && d.lastPrice) this.emit(id, s, +d.lastPrice, +d.openPrice, { h: +d.highPrice, l: +d.lowPrice, v: +d.volume, qv: +d.quoteVolume }); }).catch(() => {}));
     }
     for (const [key, s] of this.subs) if (!s.src.startsWith('binance') && !this.loops.has(key)) this.loops.set(key, this.loop(s));
     for (const [key, stop] of this.loops) if (!this.subs.has(key)) { stop(); this.loops.delete(key); }
@@ -2903,9 +3009,11 @@ const Quotes = {
     let stopped = false, n = 0; const ad = adapterById(s.src);
     const hourIv = (ad.intervals.find(x => x[1] === HOUR) || [])[0];
     const run = async () => {
+      // the watchlist never competes with the open chart: start after its first candles have loaded (or 5 s at most)
+      await Promise.race([chartFirstLoaded, new Promise(r => setTimeout(r, 5000))]);
       await new Promise(r => setTimeout(r, Math.random() * 600));
       while (!stopped) {
-        let wait = s.src === 'dukascopy' ? 4000 : (ad.quotePollMs || 6000);
+        let wait = s.src === 'dukascopy' ? (dkMarketClosed() ? 60000 : 4000) : (ad.quotePollMs || 6000); // weekend: Dukascopy prices do not move
         try {
           if (document.hidden) { await new Promise(r => setTimeout(r, 2000)); continue; } // background tab: no polling
           if (s.src === 'dukascopy') {
