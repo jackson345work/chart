@@ -12,7 +12,12 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<script src="https://unpkg.com/lightweight-charts@5.1.0/dist/lightweight-charts.standalone.production.js"></script>
+<script src="vendor/lightweight-charts.standalone.production.js"></script>
+<script>
+if (!window.LightweightCharts) {
+  document.write('<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.1.0/dist/lightweight-charts.standalone.production.js"><\/script>');
+}
+</script>
 <style>
   * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
   :root { --bg:#131722; --panel:#1e222d; --border:#2a2e39; --text:#d1d4dc; --muted:#787b86; --accent:#2962ff; --up:#26a69a; --down:#ef5350; --hover:#2a2e39; --shadow:rgba(0,0,0,.55); }
@@ -342,6 +347,19 @@
   @media (max-width: 760px) {
     #ctxMenu, #tzPop { left:8px !important; right:8px !important; width:auto; min-width:0; }
   }
+
+  /* Startup error – visible if the app fails to boot instead of a blank page */
+  #bootErr { position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; background:rgba(19,23,34,.94); color:#d1d4dc; padding:24px; font-family:-apple-system,BlinkMacSystemFont,"Trebuchet MS",Roboto,Ubuntu,sans-serif; }
+  #bootErr[hidden] { display:none !important; }
+  #bootErr .boot-card { max-width:440px; width:100%; background:#1e222d; border:1px solid #2a2e39; border-radius:8px; padding:24px 22px; box-shadow:0 16px 40px rgba(0,0,0,.45); }
+  #bootErr h1 { font-size:18px; font-weight:600; margin:0 0 10px; color:#d1d4dc; }
+  #bootErr p { color:#b2b5be; margin:0 0 18px; line-height:1.5; font-size:13px; word-break:break-word; }
+  #bootErr .boot-detail { color:#787b86; font-size:12px; margin:-8px 0 18px; }
+  #bootErr .boot-actions { display:flex; flex-direction:column; gap:8px; }
+  #bootErr button { appearance:none; border:0; border-radius:6px; padding:10px 14px; font:inherit; font-size:13px; cursor:pointer; }
+  #bootErr #bootReset { background:#2962ff; color:#fff; }
+  #bootErr #bootReset:hover { filter:brightness(1.08); }
+  #bootErr #bootReload { background:#2a2e39; color:#d1d4dc; }
 </style>
 </head>
 <body>
@@ -453,6 +471,17 @@
 <div id="gotoDlg" class="dlg" role="dialog"><div class="dlg-h"><span>Go to date</span><button data-close="gotoDlg">✕</button></div>
   <div class="dlg-b"><input id="gtDate" type="datetime-local" step="1"><p class="note">Jump the chart to a date and time in the selected time zone.</p></div>
   <div class="dlg-f"><button id="gtGo" class="active">Go to</button></div></div>
+<div id="bootErr" hidden role="alertdialog" aria-labelledby="bootErrT" aria-describedby="bootErrMsg">
+  <div class="boot-card">
+    <h1 id="bootErrT">The chart couldn't start</h1>
+    <p id="bootErrMsg"></p>
+    <p class="boot-detail" id="bootErrDetail" hidden></p>
+    <div class="boot-actions">
+      <button type="button" id="bootReset">Reset view settings (keep watchlist &amp; indicators)</button>
+      <button type="button" id="bootReload">Reload</button>
+    </div>
+  </div>
+</div>
 <div id="toasts"></div>
 <script>
 'use strict';
@@ -1494,6 +1523,44 @@ function _store() {
            del(k) { try { localStorage.removeItem('cc_' + k); } catch {} } };
 }
 var store = _store();
+
+// Visible startup error (never a blank page). Reset keeps favourites, watchlist, custom intervals and indicator settings.
+function showBootError(err) {
+  const isLib = !window.LightweightCharts || (err && (err.message === 'LIBRARY' || /LightweightCharts|createChart/.test(String(err && (err.message || err)))));
+  const el = document.getElementById('bootErr'), msg = document.getElementById('bootErrMsg'), det = document.getElementById('bootErrDetail');
+  const text = isLib
+    ? 'The chart library failed to load. This can happen if a network filter blocks the script. Reload to try again — the app is served from this site and does not need unpkg.com.'
+    : 'Something in the saved view settings stopped the chart from opening. You can reset the view (layout, scale, timezone and compare overlays) without touching your watchlist, starred timeframes or indicators.';
+  if (msg) msg.textContent = text;
+  if (det) { const d = err && err !== 'LIBRARY' ? String(err && (err.message || err)) : ''; det.textContent = d; det.hidden = !d || isLib; }
+  if (el) el.hidden = false;
+  const reset = document.getElementById('bootReset'), reload = document.getElementById('bootReload');
+  if (reset) reset.onclick = () => { resetViewSettings(); location.reload(); };
+  if (reload) reload.onclick = () => location.reload();
+  try { console.error('Chart startup error', err); } catch {}
+}
+function resetViewSettings() {
+  // Only drop view settings. Never touch favourites, watchlist, custom intervals, indicators, drawings or API keys.
+  const DROP = ['cc_layout', 'cc_syncCross', 'cc_chartPrefs', 'cc_chartTz', 'cc_drawStay', 'cc_tfFold', 'cc_pickAll'];
+  try {
+    for (const k of DROP) localStorage.removeItem(k);
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i));
+    for (const k of keys) {
+      if (!k || !/^cc_cellcfg\d+$/.test(k)) continue;
+      try {
+        const c = JSON.parse(localStorage.getItem(k) || 'null') || {};
+        const kept = { type: c.type || 'candles', inds: Array.isArray(c.inds) ? c.inds : [] };
+        if (c.source) kept.source = c.source;
+        if (c.syms && typeof c.syms === 'object') kept.syms = c.syms;
+        if (c.symbol) kept.symbol = c.symbol;
+        if (c.tf) kept.tf = c.tf;
+        localStorage.setItem(k, JSON.stringify(kept));
+      } catch {}
+    }
+  } catch {}
+}
+
 const DEVICE_TZ = -new Date().getTimezoneOffset() / 60; // hours east of UTC (8 in Malaysia)
 let TZ_SHIFT = 0, TZ_LABEL = 'UTC';
 function tzHours() { const v = store.get('chartTz', 'device'); return v === 'device' || v == null || v === '' ? DEVICE_TZ : +v; }
@@ -1600,9 +1667,13 @@ function chartOptions() {
 
 class Cell {
   constructor(idx, cfg) {
-    this.idx = idx; this.cfg = cfg; // cfg: {source, syms:{src:sym}, tf, type, inds:[instances]}
-    const ad = adapterById(cfg.source);
-    this.state = { source: ad.id, symbol: ad.normalizeSymbol(cfg.symbol || ad.defaultSymbol), tf: cfg.tf || '1h',
+    this.idx = idx;
+    this.cfg = cfg && typeof cfg === 'object' ? cfg : {};
+    if (!this.cfg.syms || typeof this.cfg.syms !== 'object' || Array.isArray(this.cfg.syms)) this.cfg.syms = {};
+    if (!Array.isArray(this.cfg.inds)) this.cfg.inds = [];
+    if (!Array.isArray(this.cfg.compare)) this.cfg.compare = [];
+    const ad = adapterById(this.cfg.source);
+    this.state = { source: ad.id, symbol: ad.normalizeSymbol(this.cfg.symbol || ad.defaultSymbol), tf: this.cfg.tf || '1h',
       src: [], agg: [], plan: null, ad, stopLive: null, gen: 0, loadingMore: false, noMoreHistory: false, lastTradeT: 0, liveOk: false, status: '', statusErr: false };
     this.disp = []; this.indRt = []; this.hovering = false; this.cross = null; this.raf = 0;
     this.el = document.createElement('div'); this.el.className = 'cell';
@@ -1618,6 +1689,7 @@ class Cell {
   get key() { return this.state.ad.id + ':' + this.state.symbol; }
   mount(parent) {
     parent.appendChild(this.el);
+    if (!LWC || typeof LWC.createChart !== 'function') throw new Error('LIBRARY');
     this.chart = LWC.createChart(this.chartEl, { autoSize: true, ...chartOptions(),
       crosshair: { mode: LWC.CrosshairMode.Normal },
       timeScale: { borderColor: TH().border, timeVisible: true, secondsVisible: false, rightOffset: 8 },
@@ -1643,7 +1715,7 @@ class Cell {
 
   // ---------- series ----------
   buildSeries() {
-    const ch = this.chart;
+    const ch = this.chart; if (!ch) return;
     if (this.main) { try { this.main.detachPrimitive(this.drawPrim); } catch {} }
     for (const p of ch.panes()) for (const s of p.getSeries()) ch.removeSeries(s);
     while (ch.panes().length > 1) ch.removePane(ch.panes().length - 1);
@@ -2467,7 +2539,14 @@ const App = {
     n = [1, 2, 4].includes(+n) ? +n : 1; this.layout = n; store.set('layout', n);
     $('cells').className = 'l' + n;
     while (this.cells.length > n) { const c = this.cells.pop(); c.destroy(); }
-    while (this.cells.length < n) { const i = this.cells.length, c = new Cell(i, this.cfgFor(i)); this.cells.push(c); c.mount($('cells')); c.renderAll(null); c.load(); }
+    while (this.cells.length < n) {
+      const i = this.cells.length;
+      let c, cfg;
+      try { cfg = this.cfgFor(i); } catch { cfg = { source: 'binance_spot', syms: {}, symbol: 'BTCUSDT', tf: '1h', type: 'candles', inds: [], compare: [] }; }
+      try { c = new Cell(i, cfg); c.mount($('cells')); }
+      catch (e) { if (!window.LightweightCharts) throw e; try { c = new Cell(i, { source: 'binance_spot', syms: {}, symbol: 'BTCUSDT', tf: '1h', type: 'candles', inds: Array.isArray(cfg && cfg.inds) ? cfg.inds : [], compare: [] }); c.mount($('cells')); } catch (e2) { throw e; } }
+      this.cells.push(c); try { c.renderAll(null); } catch {} try { c.load(); } catch {}
+    }
     if (!this.cells.includes(this.active)) this.setActive(this.cells[0], true);
     this.cells.forEach(c => c.el.classList.toggle('active', c === this.active && n > 1));
     UI.renderControls();
@@ -2585,9 +2664,27 @@ const Bottom = {
   },
 };
 
+
+const DEFAULT_WATCH = [['binance_spot', 'BTCUSDT'], ['binance_spot', 'ETHUSDT'], ['binance_spot', 'SOLUSDT'], ['binance_spot', 'BNBUSDT'], ['binance_spot', 'XRPUSDT'], ['binance_futures', 'BTCUSDT'],
+  ['dukascopy', 'XAU/USD'], ['dukascopy', 'EUR/USD'], ['dukascopy', 'USD/JPY'], ['dukascopy', 'USA500.IDX/USD'], ['dukascopy', 'NVDA.US/USD']];
+function normalizeWatchItems(raw, missing) {
+  if (missing) return DEFAULT_WATCH.slice();
+  if (!Array.isArray(raw)) return [];
+  const out = [], seen = new Set();
+  for (const it of raw) {
+    let src, sym;
+    if (Array.isArray(it) && it.length >= 2) { src = it[0]; sym = it[1]; }
+    else if (it && typeof it === 'object') { src = it.src || it.source; sym = it.sym || it.s || it.symbol; }
+    else if (typeof it === 'string' && it) { src = 'binance_spot'; sym = it; }
+    if (typeof src === 'string' && src && typeof sym === 'string' && sym) {
+      const k = src + ':' + sym; if (!seen.has(k)) { out.push([src, sym]); seen.add(k); }
+    }
+  }
+  return out;
+}
+
 const Watch = {
-  items: store.get('watch', [['binance_spot', 'BTCUSDT'], ['binance_spot', 'ETHUSDT'], ['binance_spot', 'SOLUSDT'], ['binance_spot', 'BNBUSDT'], ['binance_spot', 'XRPUSDT'], ['binance_futures', 'BTCUSDT'],
-                                ['dukascopy', 'XAU/USD'], ['dukascopy', 'EUR/USD'], ['dukascopy', 'USD/JPY'], ['dukascopy', 'USA500.IDX/USD'], ['dukascopy', 'NVDA.US/USD']]),
+  items: (function(){ try { const v = localStorage.getItem('cc_watch'); return normalizeWatchItems(v == null ? null : JSON.parse(v), v == null); } catch { return []; } })(),
   unsubs: new Map(), prev: {},
   save() { store.set('watch', this.items); },
   add(src, sym) { const ad = adapterById(src); sym = ad.normalizeSymbol(sym); if (ad.resolve) sym = ad.resolve(sym, symCache[src] && symCache[src].set);
@@ -2666,7 +2763,7 @@ function beep(times = 3) { try { audioCtx = audioCtx || new (window.AudioContext
     o.connect(g).connect(audioCtx.destination); o.start(t0 + k * 0.25); o.stop(t0 + k * 0.25 + 0.22); } window.__beeps = (window.__beeps || 0) + 1; } catch {} }
 document.addEventListener('pointerdown', () => { try { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === 'suspended') audioCtx.resume(); } catch {} }, { once: false, capture: true });
 const Alerts = {
-  list: store.get('alerts', []), last: {}, unsubs: new Map(), log: [],
+  list: (function(){ const a = store.get('alerts', []); return Array.isArray(a) ? a : []; })(), last: {}, unsubs: new Map(), log: [],
   forKey(key) { return this.list.filter(a => a.src + ':' + a.sym === key); },
   save() { store.set('alerts', this.list); this.sync(); App.refreshAll(); UI.renderAlerts(); },
   add(src, sym, price, cond = 'cross', note = '') {
@@ -2878,8 +2975,27 @@ function tfLong(s) {
   const w = { s: 'second', m: 'minute', h: 'hour', d: 'day', w: 'week', mo: 'month' }[p.unit];
   return p.n + ' ' + w + (p.n === 1 ? '' : 's');
 }
-function favList() { return store.get('favs', []).slice(); }
-function customList() { return store.get('customTf', []).filter(x => parseTimeframe(x)).slice(); }
+function normalizeTfLabel(x) {
+  if (x && typeof x === 'object') x = x.tf || x.label || x.interval || '';
+  const p = parseTimeframe(String(x || ''));
+  return p ? p.label : '';
+}
+function favList() {
+  const raw = store.get('favs', []);
+  if (!Array.isArray(raw)) return [];
+  const out = [], seen = new Set();
+  for (const x of raw) { const lab = normalizeTfLabel(x); if (lab && !seen.has(tfKey(lab))) { out.push(lab); seen.add(tfKey(lab)); } }
+  return out;
+}
+function customList() {
+  const raw = store.get('customTf', []);
+  if (!Array.isArray(raw)) return [];
+  return raw.map(normalizeTfLabel).filter(Boolean);
+}
+function foldList() {
+  const v = store.get('tfFold', []);
+  return Array.isArray(v) ? v.filter(x => typeof x === 'string') : [];
+}
 function isFav(label) { const k = tfKey(label); return favList().some(f => tfKey(f) === k); }
 const STAR_ON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="#f7c948" stroke="#f7c948" stroke-width="1.6" stroke-linejoin="round"><path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.4L12 16l-4.9 2.7 1.1-5.4-4-3.7 5.4-.6z"/></svg>';
 const STAR_OFF = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.4L12 16l-4.9 2.7 1.1-5.4-4-3.7 5.4-.6z"/></svg>';
@@ -2920,7 +3036,7 @@ const TfMenu = {
   },
   render() {
     const cur = App.active ? tfKey(App.active.state.tf) : '';
-    const folded = new Set(store.get('tfFold', []));
+    const folded = new Set(foldList());
     const builtin = new Set(TF_MENU.flatMap(x => x[1].map(tfKey)));
     const customs = new Set(customList().map(tfKey));
     const starBtn = (label, on) => `<button type="button" class="tfm-star${on ? ' on' : ''}" data-star="${esc(label)}" title="${on ? 'Remove from favourites' : 'Pin to the top bar'}" aria-label="Star ${esc(tfLong(label))}">${on ? STAR_ON : STAR_OFF}</button>`;
@@ -2959,7 +3075,7 @@ const TfMenu = {
     else { UI.renderControls(); if (this.isOpen()) this.render(); }
   },
   toggleFold(name) {
-    const folded = store.get('tfFold', []).slice();
+    const folded = foldList().slice();
     const i = folded.indexOf(name);
     if (i >= 0) folded.splice(i, 1); else folded.push(name);
     store.set('tfFold', folded);
@@ -3301,19 +3417,24 @@ function wireUI() {
 
 // ---------- start ----------
 (function start() {
-  document.body.classList.toggle('light', THEME === 'light');
-  if (store.get('watchOpen', window.innerWidth >= 1100)) document.body.classList.add('watch-open');
-  $('railWatch').classList.toggle('on', document.body.classList.contains('watch-open'));
-  if (window.innerWidth >= 760) document.body.classList.add('draw-open');
-  wireUI(); UI.renderDrawBar();
-  App.setLayout(App.layout);
-  Picker.publicAds().forEach(ad => loadSymbols(ad, () => Picker.refresh()));
-  Watch.render(); Alerts.sync();
-  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
-  const C = () => App.active;
-  window.__chart = { get state() { return C().state; }, get chart() { return C().chart; }, load: () => C().load(), setTf: t => C().setTf(t), setSymbol: s => C().setSymbol(s), setSource: id => C().setSource(id), loadMore: () => C().loadMore() };
-  window.__app = { App, Draw, Alerts, Watch, Quotes, UI, Picker, TfMenu, TfQuick, parseTfInput, screenshot, applyTheme, IND, INDICATORS };
-  Object.assign(window.ChartLib, { IND, INDICATORS, newInstance, histColor });
+  try {
+    if (!window.LightweightCharts) throw new Error('LIBRARY');
+    document.body.classList.toggle('light', THEME === 'light');
+    if (store.get('watchOpen', window.innerWidth >= 1100)) document.body.classList.add('watch-open');
+    $('railWatch').classList.toggle('on', document.body.classList.contains('watch-open'));
+    if (window.innerWidth >= 760) document.body.classList.add('draw-open');
+    wireUI(); UI.renderDrawBar();
+    App.setLayout(App.layout);
+    Picker.publicAds().forEach(ad => loadSymbols(ad, () => Picker.refresh()));
+    Watch.render(); Alerts.sync();
+    if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
+    const C = () => App.active;
+    window.__chart = { get state() { return C().state; }, get chart() { return C().chart; }, load: () => C().load(), setTf: t => C().setTf(t), setSymbol: s => C().setSymbol(s), setSource: id => C().setSource(id), loadMore: () => C().loadMore() };
+    window.__app = { App, Draw, Alerts, Watch, Quotes, UI, Picker, TfMenu, TfQuick, parseTfInput, screenshot, applyTheme, IND, INDICATORS, showBootError, resetViewSettings };
+    Object.assign(window.ChartLib, { IND, INDICATORS, newInstance, histColor });
+  } catch (err) {
+    try { showBootError(err); } catch (e2) { try { document.body.insertAdjacentHTML('beforeend', '<p style="padding:24px;color:#fff;background:#131722">The chart couldn\'t start. Reload the page.</p>'); } catch {} }
+  }
 })();
 
 // ============================================================================
@@ -3467,7 +3588,7 @@ const TVFeatures = {
   }
 };
 if (window.__app) Object.assign(window.__app, { CtxMenu, ChartSettings, GoToDate, TzPop, setTimeZone, chartPrefs, setChartPrefs });
-TVFeatures.init();
+try { TVFeatures.init(); } catch (e) { try { console.error(e); } catch {} }
 
 </script>
 </body>
