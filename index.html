@@ -111,6 +111,7 @@ if (!window.LightweightCharts) {
   .pk-row .x { font-size:10px; padding:1px 5px; border-radius:3px; border:1px solid var(--border); color:var(--muted); white-space:nowrap; }
   .pk-row .x-binance { color:#f0b90b; border-color:#f0b90b66; } .pk-row .x-bybit { color:#f7a600; border-color:#f7a60066; } .pk-row .x-okx { color:var(--text); } .pk-row .x-gate { color:#2354e6; border-color:#2354e666; } .pk-row .x-bitget { color:#00e5c7; border-color:#00e5c766; }
   .pk-row .x-dukascopy { color:#e53935; border-color:#e5393566; }
+  .pk-row .x-cnbc { color:#2f80ed; border-color:#2f80ed66; }
   .pk-row:hover, .pk-row.sel { background:var(--hover); }
   #pickInfo { color:var(--muted); font-size:11px; padding:6px 12px; border-top:1px solid var(--border); }
   #settings { position:fixed; top:48px; right:8px; z-index:30; width:420px; max-height:calc(100dvh - 56px); overflow-y:auto; background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:12px; display:none; box-shadow:0 6px 24px var(--shadow); }
@@ -1421,8 +1422,120 @@ function oandaAdapter() {
   return ad;
 }
 
+// ---------------------------------------------------------------------------
+// Malaysian ringgit pairs (Dukascopy has no MYR). CNBC's public chart API (ts-api.cnbc.com) serves
+// LSEG/Refinitiv FX quotes with Access-Control-Allow-Origin: *, free, no key, 1-minute bars back ~2 years
+// and daily bars back to 2013. Direct quotes, not synthetic crosses. Day/week/month candles start at
+// 22:00 UTC, the same session TradingView's FX_IDC MYR symbols use (FX_IDC:JPYMYR session 2200-2200 UTC).
+// ---------------------------------------------------------------------------
+// [symbol, CNBC symbol, divide by (CNBC quotes JPY/HKD per 100), invert, price decimals (TradingView FX_IDC pricescale)]
+const MYR_PAIRS = [
+  ['JPY/MYR', 'JPYMYR=', 100, false, 5], ['MYR/JPY', 'MYRJPY=', 1, false, 3], ['USD/MYR', 'MYR=', 1, false, 4], ['MYR/USD', 'MYRUSD=', 1, false, 4],
+  ['SGD/MYR', 'SGDMYR=', 1, false, 4], ['MYR/SGD', 'MYRSGD=R', 1, false, 4], ['EUR/MYR', 'EURMYR=', 1, false, 4], ['GBP/MYR', 'GBPMYR=', 1, false, 4],
+  ['AUD/MYR', 'AUDMYR=', 1, false, 4], ['NZD/MYR', 'NZDMYR=', 1, false, 4], ['CAD/MYR', 'CADMYR=', 1, false, 4], ['CHF/MYR', 'CHFMYR=', 1, false, 4],
+  ['CNY/MYR', 'CNYMYR=', 1, false, 5], ['HKD/MYR', 'HKDMYR=', 100, false, 5]];
+const MYR_DESC = { 'CNY/MYR': 'Chinese Yuan (onshore) / Malaysian Ringgit' };
+const ET_FMT = (() => { try { return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }); } catch { return null; } })();
+function cnbcEt(t) { // CNBC reads start/end as US-Eastern wall-clock time: YYYYMMDDhhmmss
+  const p = {}; for (const x of ET_FMT.formatToParts(new Date(t))) p[x.type] = x.value;
+  return `${p.year}${p.month}${p.day}${p.hour === '24' ? '00' : p.hour}${p.minute}${p.second}`;
+}
+function cnbcAdapter() {
+  const IV = [['1M', MIN], ['5M', 5 * MIN], ['10M', 10 * MIN], ['30M', 30 * MIN], ['1H', HOUR], ['1DAY', DAY]];
+  const IVMS = Object.fromEntries(IV), SPAN_MAX = 99 * DAY; // CNBC returns at most ~100 days per intraday request
+  const meta = Object.fromEntries(MYR_PAIRS.map(([s, ric, div, inv, dp]) => [s, { ric, div, inv, dp }]));
+  const r6 = (x, dp) => +x.toFixed(Math.min(10, dp + 3));
+  async function raw(ric, iv, start, end) {
+    const u = `https://ts-api.cnbc.com/harmony/app/bars/${encodeURIComponent(ric)}/${iv === '1DAY' ? '1D' : iv}/${cnbcEt(start)}/${cnbcEt(end)}/adjusted/UTC.json`;
+    let last;
+    for (let i = 0; i < 3; i++) {
+      try {
+        const r = await fetch(u); if (!r.ok) throw new Error('CNBC HTTP ' + r.status);
+        const j = await r.json(), pb = j && j.barData && j.barData.priceBars;
+        if (!Array.isArray(pb)) { if (j && j.status === 'ERROR') return []; throw new Error('CNBC: bad reply'); }
+        return pb;
+      } catch (e) { last = e; await sleepMs(600 * 2 ** i); }
+    }
+    throw last;
+  }
+  const ad = {
+    id: 'cnbc', label: 'Malaysian Ringgit FX (CNBC · LSEG quotes)', short: 'CNBC', group: 'tradfi', fx: true,
+    defaultSymbol: 'JPY/MYR', popular: MYR_PAIRS.map(x => x[0]),
+    intervals: IV, week: null, month: null, weekAnchorMs: MONDAY_ANCHOR,
+    nativeAlignMs: 2 * HOUR, alignOffsetMs: 2 * HOUR, // trading day = 22:00 UTC → 22:00 UTC (17:00 New York in winter)
+    pageLimit: 5000, pagesByTime: true, maxReq: 12, quotePollMs: 15000,
+    normalizeSymbol(x) {
+      const t = String(x).trim().toUpperCase().replace(/[\s_\-]/g, '').replace('/', '');
+      return /^[A-Z]{6}$/.test(t) ? t.slice(0, 3) + '/' + t.slice(3) : String(x).trim().toUpperCase();
+    },
+    labelOf: s => s.replace('/', ''),
+    pricePrecision: s => (meta[s] || {}).dp,
+    endpoint: () => 'ts-api.cnbc.com · LSEG/Refinitiv quote',
+    async getBars(symbol, interval, endTime, n) {
+      const m = meta[symbol];
+      if (!m) throw Object.assign(new Error(JSON.stringify({ msg: 'Unknown MYR pair ' + symbol + ' – available: ' + MYR_PAIRS.map(x => x[0]).join(', ') })), { fatal: true });
+      const ivMs = IVMS[interval]; if (!ivMs) return [];
+      const lim = Math.max(1, n || 1), end = endTime != null ? endTime : Date.now() + MIN;
+      const conv = b => { let o = +b.open / m.div, h = +b.high / m.div, l = +b.low / m.div, c = +b.close / m.div;
+        if (m.inv) { [o, h, l, c] = [1 / o, 1 / l, 1 / h, 1 / c]; }
+        let t = +b.tradeTimeinMills;
+        if (interval === '1DAY') { const d = new Date(t); t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - 2 * HOUR; } // CNBC stamps the 17:00-NY session at the next ET midnight
+        h = Math.max(h, o, c, l); l = Math.min(l, o, c); // a few CNBC weekend stubs have low > high
+        return { t, o: r6(o, m.dp), h: r6(h, m.dp), l: r6(l, m.dp), c: r6(c, m.dp), v: 0 }; };
+      // FX is shut from Friday 22:00 to Sunday 22:00 UTC: CNBC sometimes adds a stub "Saturday/Sunday" daily candle – drop it
+      const weekendSession = t => { const d = new Date(t + 2 * HOUR).getUTCDay(); return d === 0 || d === 6; };
+      let out = [];
+      if (interval === '1DAY') {
+        const start = Math.floor((end - Math.ceil(lim * 1.5 + 5) * DAY) / DAY) * DAY;
+        out = (await raw(m.ric, interval, Math.max(start, Date.UTC(2000, 0, 1)), end + DAY)).map(conv).filter(b => !weekendSession(b.t));
+      } else {
+        // walk back in ≤99-day windows; a few empty windows (feed gaps) are skipped before giving up
+        let e = end, empty = 0;
+        while (out.length < lim && empty < 3) {
+          const span = Math.min(SPAN_MAX, Math.max(4 * HOUR, (lim - out.length) * ivMs * 1.5 + 3 * DAY * (ivMs >= HOUR ? 1 : 0)));
+          const s0 = Math.floor((e - span) / ivMs) * ivMs; // aligned start: CNBC buckets from the requested start
+          const bars = (await raw(m.ric, interval, s0, e)).map(conv).filter(b => b.t <= end && (!out.length || b.t < out[0].t));
+          if (bars.length) { out = bars.concat(out); empty = 0; } else empty++;
+          e = s0 - 1;
+          if (endTime == null && out.length) break; // live / newest page: one window is enough
+          if (span < SPAN_MAX && bars.length) break;
+        }
+      }
+      out = out.filter(b => b.t <= end && isFinite(b.o) && isFinite(b.c)).sort((a, b) => a.t - b.t);
+      const seen = new Set(); out = out.filter(b => (seen.has(b.t) ? false : seen.add(b.t)));
+      return out.length > lim ? out.slice(-lim) : out;
+    },
+    subscribe(symbol, interval, h) {
+      // Live: re-read the newest candles every 10 s (the API has no stream); the 1-minute close also moves the current candle.
+      let stopped = false, ok = false, fails = 0;
+      const loop = async () => {
+        while (!stopped && interval !== '@trades') {
+          try {
+            const bars = await ad.getBars(symbol, interval, null, 3); if (stopped) return;
+            for (const b of bars) h.onBar(b, 0);
+            if (interval !== '1M') { const m1 = await ad.getBars(symbol, '1M', null, 2); const L = m1[m1.length - 1]; if (!stopped && L) h.onTrade(L.c, 0, L.t); }
+            fails = 0; if (!ok) { ok = true; h.onStatus(true, 'cnbc'); }
+          } catch (e) { if (++fails >= 2) { ok = false; h.onStatus(false, e.message); } }
+          const gap = fails ? Math.min(60000, 10000 * 2 ** fails) : (typeof document !== 'undefined' && document.hidden ? 30000 : 10000);
+          await new Promise(r => setTimeout(r, gap));
+        }
+      };
+      loop();
+      return () => { stopped = true; };
+    },
+    async listSymbols() {
+      return MYR_PAIRS.map(([s, , , inv]) => { const [b, q] = s.split('/');
+        return { s, d: (MYR_DESC[s] || `${FX_NAMES_D[b] || b} / ${FX_NAMES_D[q] || q}`) + (inv ? ' (inverse of ' + q + '/' + b + ')' : '') }; });
+    },
+    categories: [['All', () => true]]
+  };
+  return ad;
+}
+const FX_NAMES_D = { USD: 'U.S. Dollar', EUR: 'Euro', GBP: 'British Pound', JPY: 'Japanese Yen', CHF: 'Swiss Franc', AUD: 'Australian Dollar', CAD: 'Canadian Dollar', NZD: 'New Zealand Dollar',
+  SGD: 'Singapore Dollar', HKD: 'Hong Kong Dollar', CNY: 'Chinese Yuan', MYR: 'Malaysian Ringgit' };
+
 const ADAPTERS = [binanceAdapter(false), binanceAdapter(true), bybitAdapter('spot'), bybitAdapter('linear'), okxAdapter(false), okxAdapter(true), gateAdapter(),
-                  bitgetAdapter(false), bitgetAdapter(true), dukascopyAdapter(), oandaAdapter(), mt5Adapter()];
+                  bitgetAdapter(false), bitgetAdapter(true), dukascopyAdapter(), cnbcAdapter(), oandaAdapter(), mt5Adapter()];
 const adapterById = id => ADAPTERS.find(a => a.id === id) || ADAPTERS[0];
 
 function tradesToBars(trades, ms = SEC) {
@@ -1803,13 +1916,15 @@ const THEMES = {
 let THEME = store.get('theme', 'dark') === 'light' ? 'light' : 'dark';
 const TH = () => THEMES[THEME];
 
+const fmtNumG = v => fmtNum(v);
 function fmtNum(v) {
   if (v == null || !isFinite(v)) return '—';
   const a = Math.abs(v), dp = a >= 1000 ? 2 : a >= 10 ? 3 : a >= 1 ? 5 : a >= 0.01 ? 6 : 8;
   return v.toLocaleString('en-US', { minimumFractionDigits: Math.min(2, dp), maximumFractionDigits: dp });
 }
 function fmtVol(v) { return v == null ? '—' : v >= 1e9 ? (v/1e9).toFixed(2)+'B' : v >= 1e6 ? (v/1e6).toFixed(2)+'M' : v >= 1e3 ? (v/1e3).toFixed(2)+'K' : v.toFixed(2); }
-function priceFormatFor(bars) {
+function priceFormatFor(bars, fixed) {
+  if (fixed >= 0) return { type: 'price', precision: fixed, minMove: Math.pow(10, -fixed) }; // source-defined decimals (e.g. JPY/MYR 5, like TradingView)
   let prec = 2; // precision from the data itself (max decimals seen in recent closes), clamped 2..8
   for (const b of bars.slice(-200)) { const s = String(b.c); const i = s.indexOf('.'); if (i >= 0) prec = Math.max(prec, s.length - i - 1); }
   prec = Math.min(8, prec);
@@ -1920,7 +2035,7 @@ class Cell {
     const def = indDef(inst.type); if (!def) return;
     const ch = this.chart, pane = def.overlay ? 0 : ch.panes().length;
     const rt = { inst, def, series: {}, pane, prims: [] };
-    const pf = def.priceLike ? priceFormatFor(this.state.agg) : def.fixedRange ? { type: 'price', precision: 2, minMove: 0.01 } : undefined;
+    const pf = def.priceLike ? priceFormatFor(this.state.agg, this.fixedPrec()) : def.fixedRange ? { type: 'price', precision: 2, minMove: 0.01 } : undefined;
     for (const pl of def.plots) {
       const color = (inst.colors && inst.colors[pl.k]) || pl.color, width = (inst.widths && inst.widths[pl.k]) || pl.width || 1;
       const common = { priceLineVisible: false, lastValueVisible: !(pl.scale === 'vol' || def.id === 'ichimoku'), crosshairMarkerVisible: false, visible: !inst.hidden && !(inst.off && inst.off[pl.k]), title: '' };
@@ -2007,10 +2122,11 @@ class Cell {
       if (v == null || !isFinite(v)) s.update({ time }); else { const pt = { time, value: v }; if (colors && colors[i]) pt.color = colors[i]; if (breaks && breaks[i]) pt.color = 'rgba(0,0,0,0)'; s.update(pt); }
     }
   }
+  fixedPrec() { const a = this.state.ad; return a && a.pricePrecision ? a.pricePrecision(this.state.symbol) : undefined; }
   renderAll(keep) {
     const bars = this.computeDisp(), ts = this.chart.timeScale();
     const range = keep ? ts.getVisibleLogicalRange() : null;
-    const pf = priceFormatFor(this.state.agg);
+    const pf = priceFormatFor(this.state.agg, this.fixedPrec());
     this.main.applyOptions({ priceFormat: pf });
     for (const rt of this.indRt) if (rt.def.priceLike || rt.def.overlay) for (const k in rt.series) if (!(rt.def.plots.find(p => p.k === k) || {}).scale) rt.series[k].applyOptions({ priceFormat: pf });
     try { this.main.setData(bars.map((b, i) => this.mainPoint(b, i, bars))); } catch (e) { console.warn(e); }
@@ -2037,6 +2153,7 @@ class Cell {
     if (param && param.time != null) { const j = binarySearch(agg, fromChartTime(param.time)); if (j >= 0) i = j; }
     const b = agg[i], prev = agg[i-1];
     const chg = prev ? b.c - prev.c : b.c - b.o, pct = chg / (prev ? prev.c : b.o) * 100, cls = b.c >= b.o ? 'up' : 'down';
+    const fp = this.fixedPrec(), fmtNum = v => fp >= 0 && v != null && isFinite(v) ? v.toFixed(fp) : fmtNumG(v);
     let html = `<div class="lg-main"><span class="coin" style="${coinStyle(st.ad, st.symbol)}">${coinGlyph(st.ad, st.symbol)}</span>&nbsp;<span class="sym">${esc(symTitle(st.ad, st.symbol))} · ${st.plan.spec.label} · <span class="ex">${esc(st.ad.short)}</span></span><i class="dot" style="background:${st.liveOk ? 'var(--up)' : 'var(--muted)'}"></i>` +
       `<span class="label">${this.fmtTime(b.t)}</span>` +
       `<span class="k">O</span><span class="${cls}">${fmtNum(b.o)}</span><span class="k">H</span><span class="${cls}">${fmtNum(b.h)}</span>` +
@@ -2696,7 +2813,7 @@ const App = {
       let source = store.get('source', 'binance_spot'), symbol = null, tf = store.get('tf', '1h');
       // URL hash: #BTCUSDT/3h  or  #binance_futures/ETHUSDT/7m  (old "spot"/"futures" also accepted)
       const parts = location.hash.slice(1).split('/').filter(Boolean).map(x => { try { return decodeURIComponent(x); } catch { return x; } });
-      const alias = { spot: 'binance_spot', futures: 'binance_futures', bybit: 'bybit_linear', bybitspot: 'bybit_spot', okx: 'okx_spot', gate: 'gate_spot', bitget: 'bitget_spot', bitgetperp: 'bitget_futures' };
+      const alias = { spot: 'binance_spot', futures: 'binance_futures', bybit: 'bybit_linear', bybitspot: 'bybit_spot', okx: 'okx_spot', gate: 'gate_spot', bitget: 'bitget_spot', bitgetperp: 'bitget_futures', myr: 'cnbc' };
       let fromHash = false; if (parts[0] && (alias[parts[0]] || ADAPTERS.some(a => a.id === parts[0]))) { const p0 = parts.shift(); source = alias[p0] || p0; fromHash = true; }
       if (parts[0]) symbol = parts[0]; if (parts[1]) tf = parts[1];
       let ad = adapterById(source);
@@ -2788,7 +2905,7 @@ const Quotes = {
     const run = async () => {
       await new Promise(r => setTimeout(r, Math.random() * 600));
       while (!stopped) {
-        let wait = s.src === 'dukascopy' ? 4000 : 6000;
+        let wait = s.src === 'dukascopy' ? 4000 : (ad.quotePollMs || 6000);
         try {
           if (document.hidden) { await new Promise(r => setTimeout(r, 2000)); continue; } // background tab: no polling
           if (s.src === 'dukascopy') {
@@ -2880,6 +2997,7 @@ const Watch = {
   move(i, d) { const j = i + d; if (j < 0 || j >= this.items.length) return; [this.items[i], this.items[j]] = [this.items[j], this.items[i]]; this.save(); this.render(); },
   section(src, sym) { const ad = adapterById(src);
     if (ad.crypto) return ad.perp ? 'FUTURES' : 'CRYPTO';
+    if (ad.fx) return 'FOREX';
     if (ad.id === 'dukascopy') { const it = (symCache.dukascopy && symCache.dukascopy.list || []).find(x => x.s === sym), g = String(it && (it.g || it.group || it.cat) || '').toLowerCase();
       if (/^[A-Z]{3}\/[A-Z]{3}$/.test(sym)) return /^X(AU|AG|PT|PD)\//.test(sym) ? 'METALS' : 'FOREX';
       if (/\.IDX\//.test(sym) || /ind/.test(g)) return 'INDICES'; if (/\.CMD\//.test(sym) || /comm|energ/.test(g)) return 'COMMODITIES'; return 'STOCKS'; }
@@ -2900,6 +3018,7 @@ const Watch = {
   },
   paint(s) {
     this.items.forEach(([src, sym], i) => { if (src !== s.src || sym !== s.sym) return; const p = $('wlp' + i), c = $('wlc' + i), d = $('wld' + i); if (!p) return;
+      const fp = (adapterById(src).pricePrecision || (() => undefined))(sym), fmtNum = v => fp >= 0 && v != null && isFinite(v) ? v.toFixed(fp) : fmtNumG(v);
       const k = src + ':' + sym, old = this.prev[k]; p.textContent = fmtNum(s.last);
       if (old != null && s.last !== old) { p.classList.remove('fl-up', 'fl-dn'); void p.offsetWidth; p.classList.add(s.last > old ? 'fl-up' : 'fl-dn'); }
       this.prev[k] = s.last; const cls = s.chg == null ? '' : s.chg >= 0 ? 'up' : 'down';
@@ -2922,6 +3041,7 @@ const SymInfo = {
   },
   paint() {
     const c = App.active, el = $('symInfo'); if (!c || !el || !this.key) return; const ad = c.ad, sym = c.state.symbol, s = this.s || {}, agg = c.state.agg;
+    const fp = (ad.pricePrecision || (() => undefined))(sym), fmtNum = v => fp >= 0 && v != null && isFinite(v) ? v.toFixed(fp) : fmtNumG(v);
     const last = (agg.length && c.state.liveOk ? agg[agg.length - 1].c : null) ?? s.last, ref = s.ref, chg = last != null && ref ? last - ref : null, pct = chg != null ? chg / ref * 100 : null;
     const [, q] = splitPair(ad, sym), x = s.x || {}, cls = chg == null ? '' : chg >= 0 ? 'up' : 'down';
     const mkt = marketState(ad), cell = (k, v) => v == null || v === '' || Number.isNaN(v) ? '' : `<div><small>${k}</small><b>${v}</b></div>`;
@@ -2994,7 +3114,7 @@ function sourceOptions(sel, first = '', count = () => '') {
 //  Symbol picker – TradingView-style, one box across every public source
 // ============================================================================
 const SEARCH_ALIAS = { GOLD: 'XAU/USD', XAU: 'XAU/USD', XAUUSD: 'XAU/USD', SILVER: 'XAG/USD', XAG: 'XAG/USD', XAGUSD: 'XAG/USD' };
-const SRC_RANK = { binance_spot: 0, binance_futures: 1, bybit_spot: 2, bybit_linear: 3, okx_spot: 4, okx_swap: 5, gate_spot: 6, bitget_spot: 7, bitget_futures: 8, dukascopy: 9 };
+const SRC_RANK = { binance_spot: 0, binance_futures: 1, bybit_spot: 2, bybit_linear: 3, okx_spot: 4, okx_swap: 5, gate_spot: 6, bitget_spot: 7, bitget_futures: 8, dukascopy: 9, cnbc: 10 };
 function instType(it) {
   const a = adapterById(it.src);
   if (a.crypto) return a.perp ? 'perpetual' : 'spot';
