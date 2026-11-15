@@ -269,6 +269,7 @@ if (!window.LightweightCharts) {
   .lg-main .dot { width:8px; height:8px; border-radius:50%; background:var(--up); display:inline-block; margin:0 8px 0 2px; align-self:center; }
   .ind-row { line-height:20px; } .ind-t { color:var(--text); margin-right:4px; }
   .ind-btns button { border:0; background:transparent; color:var(--muted); }
+  .year-badge { position:absolute; z-index:5; pointer-events:none; display:none; padding:0 6px; font-size:11px; font-weight:600; color:var(--text); background:var(--bg); border-right:1px solid var(--border); font-variant-numeric:tabular-nums; }
   .cd-label { position:absolute; right:0; z-index:6; pointer-events:none; font-size:11px; line-height:14px; text-align:center; color:#fff; border-radius:0 0 2px 2px; font-variant-numeric:tabular-nums; display:none; }
   /* right panel */
   #watch { background:var(--panel); border-left:4px solid var(--panel2); }
@@ -2001,6 +2002,7 @@ function coinStyle(ad, sym) { const k = coinKey(ad, sym); let c = COIN_COL[k];
   if (!c) { let h = 0; for (const ch of k) h = (h * 31 + ch.charCodeAt(0)) % 360; c = `hsl(${h},55%,42%)`; } return 'background:' + c; }
 function coinGlyph(ad, sym) { const k = coinKey(ad, sym); return esc(COIN_GLYPH[k] || k.replace(/^1000+/, '').slice(0, k.length > 3 ? 1 : 2)); }
 
+const MON_S = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'], WD_S = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const toChartTime = t => Math.floor(t / 1000) + TZ_SHIFT;
 const fromChartTime = ct => (ct - TZ_SHIFT) * 1000;
 const PRESETS = ['1s','5s','15s','1m','3m','5m','15m','30m','1h','2h','4h','6h','12h','1D','1W','1M'];
@@ -2072,8 +2074,8 @@ class Cell {
       src: [], agg: [], plan: null, ad, stopLive: null, gen: 0, loadingMore: false, noMoreHistory: false, lastTradeT: 0, liveOk: false, status: '', statusErr: false };
     this.disp = []; this.indRt = []; this.hovering = false; this.cross = null; this.raf = 0;
     this.el = document.createElement('div'); this.el.className = 'cell';
-    this.el.innerHTML = `<div class="chart"></div><div class="legend main-legend"></div><div class="pane-legends"></div><div class="cell-msg"></div><div class="cd-label"></div>`;
-    this.cdEl = this.el.querySelector('.cd-label'); this.quote = null;
+    this.el.innerHTML = `<div class="chart"></div><div class="legend main-legend"></div><div class="pane-legends"></div><div class="cell-msg"></div><div class="cd-label"></div><div class="year-badge" title="Year at the left edge of the chart"></div>`;
+    this.cdEl = this.el.querySelector('.cd-label'); this.yearEl = this.el.querySelector('.year-badge'); this.quote = null;
     this.chartEl = this.el.querySelector('.chart'); this.legendEl = this.el.querySelector('.main-legend');
     this.paneLegendsEl = this.el.querySelector('.pane-legends'); this.msgEl = this.el.querySelector('.cell-msg');
     if (idx === 0) { this.chartEl.id = 'chart'; this.legendEl.id = 'legend'; }
@@ -2088,7 +2090,10 @@ class Cell {
       timeScale: { borderColor: TH().border, timeVisible: true, secondsVisible: false, rightOffset: 8 },
       handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
       handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
-      localization: { timeFormatter: ct => this.fmtTime(fromChartTime(ct)) } });
+      // TradingView-style time axis: the year at each year boundary, month names at month boundaries, then days / times;
+      // the crosshair label always carries the year ("Fri 14 Nov '26  14:00", "Fri 14 Nov '26" on 1D/1W, "Nov 2026" on 1M+)
+      localization: { timeFormatter: ct => this.fmtCross(ct) } });
+    this.chart.applyOptions({ timeScale: { tickMarkFormatter: (ct, type) => this.fmtTick(ct, type) } });
     this.drawPrim = new DrawPrimitive(this);
     this.buildSeries();
     this.chart.subscribeCrosshairMove(param => {
@@ -2097,7 +2102,9 @@ class Cell {
       this.updateLegend(this.hovering ? param : null);
       App.onCrosshair(this, param);
     });
-    this.chart.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r && r.from < 30) this.loadMore(); });
+    this.chart.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r && r.from < 30) this.loadMore();
+      if (!this._ybRaf) this._ybRaf = requestAnimationFrame(() => { this._ybRaf = 0; this.paintYearBadge(); }); });
+    this.chart.timeScale().subscribeSizeChange(() => this.paintYearBadge());
     new ResizeObserver(() => this.positionPaneLegends()).observe(this.chartEl);
     this.el.addEventListener('pointerdown', () => App.setActive(this), true);
     Draw.bind(this);
@@ -2158,11 +2165,46 @@ class Cell {
   // ---------- time helpers ----------
   barMs() { const p = this.state.plan; return !p ? HOUR : p.spec.unit === 'mo' ? p.spec.n * 30.44 * DAY : p.spec.ms; }
   isDailyPlus() { const p = this.state.plan; return p && (p.spec.unit === 'mo' || p.spec.unit === 'w' || (p.spec.ms >= DAY && p.spec.ms % DAY === 0)); }
+  /** the calendar date/time shown on the chart for a chart time (UTC getters give the chart's own clock / the bar's own day) */
+  wallDate(ct) { return this.isDailyPlus() ? new Date(fromChartTime(ct) + (this.ad.alignOffsetMs || 0)) : new Date(ct * 1000); }
+  fmtTick(ct, type) {
+    const d = this.wallDate(ct), p = n => String(n).padStart(2, '0');
+    switch (type) {
+      case 0: return String(d.getUTCFullYear()); // TickMarkType.Year
+      case 1: return d.getUTCMonth() === 0 ? String(d.getUTCFullYear()) : MON_S[d.getUTCMonth()]; // Month (January shows the year)
+      case 2: return String(d.getUTCDate()); // DayOfMonth
+      case 3: return `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+      default: return `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+    }
+  }
+  fmtCross(ct) {
+    const d = this.wallDate(ct), p = n => String(n).padStart(2, '0'), pl = this.state.plan, u = pl && pl.spec.unit;
+    if (u === 'mo') return `${MON_S[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+    const day = `${WD_S[d.getUTCDay()]} ${d.getUTCDate()} ${MON_S[d.getUTCMonth()]} '${p(d.getUTCFullYear() % 100)}`;
+    if (this.isDailyPlus()) return day;
+    return `${day}  ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}` + (u === 's' ? ':' + p(d.getUTCSeconds()) : '');
+  }
+  /** year badge pinned to the left end of the time axis: which year the left edge of the chart is in */
+  paintYearBadge() {
+    const el = this.yearEl; if (!el || !this.chart) return;
+    const agg = this.disp; let r = null; try { r = this.chart.timeScale().getVisibleLogicalRange(); } catch {}
+    if (!agg || !agg.length || !r) { el.style.display = 'none'; return; }
+    const i = Math.min(agg.length - 1, Math.max(0, Math.ceil(r.from))), j = Math.min(agg.length - 1, Math.max(0, Math.floor(r.to)));
+    const a = this.wallDate(toChartTime(agg[i].t)), b = this.wallDate(toChartTime(agg[j].t));
+    const y0 = a.getUTCFullYear(), y1 = b.getUTCFullYear();
+    const txt = y0 === y1 ? (this.isDailyPlus() ? String(y0) : `${MON_S[a.getUTCMonth()]} ${y0}`) : `${y0} – ${y1}`;
+    let h = 0; try { h = this.chart.timeScale().height(); } catch {}
+    if (!h) { el.style.display = 'none'; return; }
+    el.textContent = txt; el.style.display = 'block';
+    el.style.top = (this.chartEl.offsetTop + this.chartEl.clientHeight - h) + 'px'; el.style.height = h + 'px'; el.style.lineHeight = h + 'px';
+    el.style.left = this.chartEl.offsetLeft + 'px';
+  }
   fmtTime(t) {
     const d = new Date(t), p = n => String(n).padStart(2, '0');
     // daily+ bars: show the bucket's own calendar date (UTC / broker-server day), not the shifted local clock
     if (this.isDailyPlus()) { const e = new Date(t + (this.ad.alignOffsetMs || 0)); return `${e.getUTCFullYear()}-${p(e.getUTCMonth()+1)}-${p(e.getUTCDate())}`; }
-    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}` + (this.state.plan && this.state.plan.spec.unit === 's' ? ':' + p(d.getSeconds()) : '');
+    const w = new Date(t + TZ_SHIFT * 1000); // the chart's own time zone (same clock as the time axis)
+    return `${w.getUTCFullYear()}-${p(w.getUTCMonth()+1)}-${p(w.getUTCDate())} ${p(w.getUTCHours())}:${p(w.getUTCMinutes())}` + (this.state.plan && this.state.plan.spec.unit === 's' ? ':' + p(w.getUTCSeconds()) : '');
   }
   /** time of bar index k (may be beyond the data: future bars continue the timeframe's rhythm) */
   timeAtIndex(k) {
@@ -2235,6 +2277,7 @@ class Cell {
     this.msgEl.textContent = !bars.length && this.state.statusErr ? this.state.status : '';
     this.updateLegend(null);
     this.drawPrim.refresh();
+    requestAnimationFrame(() => this.paintYearBadge());
   }
   updateLastBar() {
     const bars = this.computeDisp(), i = bars.length - 1, b = bars[i]; if (!b) return;
