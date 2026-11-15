@@ -974,13 +974,12 @@ function bitgetAdapter(futures) {
   const REST = 'https://api.bitget.com';
   const WS = ['wss://ws.bitget.com/v2/ws/public'];
   const instType = futures ? 'USDT-FUTURES' : 'SPOT';
-  // Spot REST uses 1min/1h; mix uses 1m/1H. Spot 6h/12h/1day/1week/1M are UTC+8, so those
-  // are aggregated from 1h/4h to stay on UTC (same as Binance and this app's other sources).
+  // Spot REST uses 1min/1h; mix uses 1m/1H. Plain 6h/12h/1day are UTC+8, so the UTC variants are used.
   const IV = futures
     ? [['1m', MIN], ['3m', 3 * MIN], ['5m', 5 * MIN], ['15m', 15 * MIN], ['30m', 30 * MIN],
        ['1H', HOUR], ['4H', 4 * HOUR], ['6Hutc', 6 * HOUR], ['12Hutc', 12 * HOUR], ['1Dutc', DAY]]
     : [['1min', MIN], ['3min', 3 * MIN], ['5min', 5 * MIN], ['15min', 15 * MIN], ['30min', 30 * MIN],
-       ['1h', HOUR], ['4h', 4 * HOUR]];
+       ['1h', HOUR], ['4h', 4 * HOUR], ['6Hutc', 6 * HOUR], ['12Hutc', 12 * HOUR], ['1Dutc', DAY]]; // spot has UTC 6h/12h/day too: one native page, no paging through 4h
   const CHAN = {
     '1min': 'candle1m', '3min': 'candle3m', '5min': 'candle5m', '15min': 'candle15m', '30min': 'candle30m',
     '1h': 'candle1H', '4h': 'candle4H',
@@ -1273,12 +1272,12 @@ function gcDb() {
 const withDeadline = (p, ms, fallback = null) => Promise.race([p, new Promise(r => setTimeout(() => r(fallback), ms))]);
 async function barCacheGet(key) {
   return withDeadline((async () => { try { const db = await gcDb(); if (!db) return null;
-    return await new Promise(res => { const q = db.transaction('bars').objectStore('bars').get(key); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); });
+    return await new Promise(res => { const q = db.transaction('bars').objectStore('bars').get(key); q.onsuccess = () => { const raw = q.result, safe = cleanBars(raw); if (raw && JSON.stringify(raw) !== JSON.stringify(safe)) { try { const os = db.transaction('bars','readwrite').objectStore('bars'); safe.length ? os.put(safe,key) : os.delete(key); } catch {} } res(safe.length ? safe : null); }; q.onerror = () => res(null); });
   } catch { return null; } })(), 600);
 }
 function barCachePut(key, bars) {
   if (!bars || !bars.length) return;
-  const data = bars.slice(-3000).map(b => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+  const data = cleanBars(bars).slice(-20000);
   gcDb().then(db => { if (!db) return; try {
     let idx = []; try { idx = JSON.parse(localStorage.getItem('cc_barcache_idx') || '[]'); } catch {}
     idx = idx.filter(k => k !== key); idx.push(key);
@@ -1645,19 +1644,31 @@ function tradesToBars(trades, ms = SEC) {
     else { if (tr.p > cur.h) cur.h = tr.p; if (tr.p < cur.l) cur.l = tr.p; cur.c = tr.p; cur.v += tr.q || 0; } }
   return out;
 }
+// All OHLC paths (network, cache and live) use the same validity rules. Never let a NaN, duplicate or inverted
+// candle poison Lightweight Charts' time index or price scale. No outlier clipping: genuine market spikes stay intact.
+function cleanBars(input) {
+  const m = new Map();
+  for (const b of Array.isArray(input) ? input : []) {
+    if (!b) continue;
+    const t = +b.t, o = +b.o, h = +b.h, l = +b.l, c = +b.c;
+    if (!Number.isInteger(t) || ![o,h,l,c].every(v => Number.isFinite(v) && v > 0)) continue;
+    m.set(t, { t, o, h: Math.max(o,h,l,c), l: Math.min(o,h,l,c), c, v: Number.isFinite(+b.v) && +b.v >= 0 ? +b.v : 0 });
+  }
+  return [...m.values()].sort((a,b) => a.t-b.t);
+}
 /** Fetch up to `needed` bars ending at endTime (exclusive-ish), walking backwards page by page. */
 async function fetchHistory(ad, symbol, interval, endTime, maxReq, needed, onChunk) {
   if (interval === '@trades') { // seconds candles built from recent trade history (where the source has it)
     if (!ad.tradeHistory) return { bars: [], exhausted: true };
     const trades = await ad.tradeHistory(symbol, endTime, Math.min(maxReq, 15));
-    let bars = tradesToBars(trades); if (endTime != null) bars = bars.filter(b => b.t <= endTime);
+    let bars = cleanBars(tradesToBars(trades)); if (endTime != null) bars = bars.filter(b => b.t <= endTime);
     if (onChunk && bars.length) onChunk(bars);
     return { bars, exhausted: true };
   }
   let all = [], end = endTime, req = 0;
   while (req < maxReq && all.length < needed) {
     const lim = Math.min(ad.pageLimit, Math.max(needed - all.length, 50));
-    let bars = await ad.getBars(symbol, interval, end, lim, 1); req++;
+    let bars = cleanBars(await ad.getBars(symbol, interval, end, lim, 1)); req++;
     if (end != null) bars = bars.filter(b => b.t <= end);
     if (all.length) bars = bars.filter(b => b.t < all[0].t);
     if (!bars.length) return { bars: all, exhausted: true };
@@ -1669,7 +1680,7 @@ async function fetchHistory(ad, symbol, interval, endTime, maxReq, needed, onChu
   return { bars: all, exhausted: false };
 }
 
-window.ChartLib = { resolveCrypto, baseOfSymbol, parseTimeframe, planTimeframe, aggregate, emaSeries, macdCalc, ADAPTERS, adapterById, fetchHistory, MONDAY_ANCHOR, SUNDAY_ANCHOR };
+window.ChartLib = { resolveCrypto, baseOfSymbol, parseTimeframe, planTimeframe, aggregate, emaSeries, macdCalc, ADAPTERS, adapterById, fetchHistory, cleanBars, MONDAY_ANCHOR, SUNDAY_ANCHOR };
 
 // ============================================================================
 //  Indicator maths – each function mirrors the Pine Script built-in TradingView uses.
@@ -2265,6 +2276,7 @@ class Cell {
   }
   fixedPrec() { const a = this.state.ad; return a && a.pricePrecision ? a.pricePrecision(this.state.symbol) : undefined; }
   renderAll(keep) {
+    this.state.agg = cleanBars(this.state.agg);
     const bars = this.computeDisp(), ts = this.chart.timeScale();
     const range = keep ? ts.getVisibleLogicalRange() : null;
     const pf = priceFormatFor(this.state.agg, this.fixedPrec());
@@ -2430,6 +2442,7 @@ class Cell {
   // ---------- load ----------
   async load() {
     const st = this.state, gen = ++st.gen;
+    st.initialLoading = true; st.loadingMore = false;
     this.stopLive(); this.quote = null; this._cd = null;
     const ad = st.ad;
     App.onCellChanged(this);
@@ -2452,7 +2465,16 @@ class Cell {
     let ranged = false;
     const paint = (bars, note) => {
       if (gen !== st.gen || !bars || !bars.length) return;
-      st.src = bars; st.agg = aggregate(bars, plan); this.renderAll(null);
+      // History arrives newest-first then grows backwards. Keep the SAME visible timestamps when older pages
+      // are prepended; Lightweight Charts otherwise shifts the logical viewport past the end of the data.
+      bars = cleanBars(bars);
+      if (st.src.length) bars = cleanBars(st.src.concat(bars));
+      const old = st.agg, r = ranged ? this.chart.timeScale().getVisibleLogicalRange() : null;
+      st.src = bars; st.agg = aggregate(bars, plan);
+      const anchor = old.length ? old[0].t : null;
+      const shift = anchor == null ? 0 : Math.max(0, st.agg.findIndex(b => b.t === anchor));
+      this.renderAll(null);
+      if (r) this.chart.timeScale().setVisibleLogicalRange({ from:r.from+shift, to:r.to+shift });
       if (!ranged) { const n = st.agg.length, w = this.chartEl.clientWidth < 600 ? 70 : 160;
         this.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - w), to: n + (w > 100 ? 8 : 4) }); ranged = true; }
       if (note) this.setStatus(note);
@@ -2469,19 +2491,21 @@ class Cell {
       const { bars, exhausted } = await fetchHistory(ad, st.symbol, plan.src, null, ad.maxReq || MAX_REQ_INITIAL, needed, b => paint(b)).finally(() => clearTimeout(slowT));
       if (gen !== st.gen) return;
       if (!bars.length && !plan.fromTrades) throw Object.assign(new Error(JSON.stringify({ msg: 'No data for ' + st.symbol })), { fatal: true });
-      st.src = bars; st.noMoreHistory = exhausted;
-      if (!ad.cachedBars && plan.src !== '@trades') barCachePut(srcKey, bars);
-      st.agg = aggregate(bars, plan);
+      st.src = cleanBars(st.src.concat(bars)); st.noMoreHistory = exhausted;
+      if (!ad.cachedBars && plan.src !== '@trades') barCachePut(srcKey, st.src);
+      st.agg = aggregate(st.src, plan);
       this.renderAll(null);
       if (!ranged) { const n = st.agg.length, w = this.chartEl.clientWidth < 600 ? 70 : 160;
         this.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - w), to: n + (w > 100 ? 8 : 4) }); }
       const n = st.agg.length;
       this.setStatus(plan.fromTrades && !n ? 'No second history here – candles build from live trades…' : `Loaded ${n} bars · connecting live…`);
       App.onCellLoaded(this);
+      st.initialLoading = false;
       this.startLive(gen);
       this.loadCompares();
     } catch (e) {
       if (gen !== st.gen) return;
+      st.initialLoading = false;
       let msg = e.message; try { msg = JSON.parse(e.message).msg || msg; } catch {}
       if (st.agg.length) {
         this.setStatus(`Could not reach ${ad.short} (${msg}) – showing cached, retrying…`, true);
@@ -2495,14 +2519,14 @@ class Cell {
   }
   async loadMore() {
     const st = this.state;
-    if (st.loadingMore || st.noMoreHistory || !st.src.length) return;
+    if (st.initialLoading || st.loadingMore || st.noMoreHistory || !st.src.length) return;
     st.loadingMore = true;
     const gen = st.gen, plan = st.plan;
     try {
       const { bars, exhausted } = await fetchHistory(st.ad, st.symbol, plan.src, st.src[0].t - 1, MAX_REQ_MORE, Math.ceil(300 * plan.ratio));
       if (gen !== st.gen) return;
       if (exhausted) st.noMoreHistory = true;
-      if (bars.length) { const prevLen = st.agg.length; st.src = bars.concat(st.src); st.agg = aggregate(st.src, plan); this.renderAll({ prevLen }); }
+      if (bars.length) { const prevLen = st.agg.length; st.src = cleanBars(bars.concat(st.src)); st.agg = aggregate(st.src, plan); this.renderAll({ prevLen }); }
     } catch (e) { /* retry on next scroll */ }
     finally { st.loadingMore = false; }
   }
